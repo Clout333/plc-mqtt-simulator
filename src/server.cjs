@@ -9,7 +9,7 @@ const {Journal,browser,reason,appVersion}=require('./diagnostics.cjs');
 const {observed,operation,inputKind}=require('./diagnostic-events.cjs');
 const {analyse,merge}=require('./protocol-import.cjs'),{MAX_BYTES,formatOf}=require('./protocol-files.cjs');
 const rootDir=path.resolve(__dirname,'..');
-const assetMap={'/':'index.html','/physical':'index.html','/platform':'index.html','/local-text.js':'local-text.js','/protocol-import.js':'protocol-import.js','/protocol-import.css':'protocol-import.css','/assist.js':'assist.js','/report-format.js':'report-format.js','/diagnostics.js':'diagnostics.js','/assist.css':'assist.css','/app.js':'app.js','/style.css':'style.css','/guide':'guide.html'};
+const assetMap={'/':'index.html','/physical':'index.html','/platform':'index.html','/local-text.js':'local-text.js','/protocol-import.js':'protocol-import.js','/protocol-import.css':'protocol-import.css','/assist.js':'assist.js','/report-format.js':'report-format.js','/diagnostics.js':'diagnostics.js','/assist.css':'assist.css','/app.js':'app.js','/style.css':'style.css','/instruments.svg':'instruments.svg','/guide':'guide.html'};
 function csv(p){
   const col=x=>'"'+String(x).replaceAll('"','""')+'"';
   return '\uFEFF'+[['区域','逻辑零基地址','驱动地址','宽度','变量名','说明','权限'],...pointTable(p).map(x=>[x.area,x.address,x.native,x.width,x.name,x.meaning,x.access])].map(row=>row.map(col).join(',')).join('\r\n');
@@ -76,7 +76,7 @@ async function start(root=rootDir,override,options={}){
         return send(200,status);
       }
       if(req.method==='GET'&&Object.hasOwn(assetMap,route)){
-        const name=assetMap[route];return send(200,fs.readFileSync(path.join(root,'web',name)),({js:'text/javascript',css:'text/css',html:'text/html'})[name.split('.').pop()]+'; charset=utf-8');
+        const name=assetMap[route];return send(200,fs.readFileSync(path.join(root,'web',name)),({js:'text/javascript',css:'text/css',svg:'image/svg+xml',html:'text/html'})[name.split('.').pop()]+'; charset=utf-8');
       }
       if(changing||closing||!session)return send(503,{error:'项目正在切换，请稍候'});
       if(req.method==='GET'){

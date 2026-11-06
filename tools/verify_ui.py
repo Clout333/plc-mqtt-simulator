@@ -77,8 +77,15 @@ c.ports=JSON.parse(process.argv[3]);require(root+'/src/server.cjs').start(root,c
                 page.locator('[data-hmi="stop"]').click()
                 expect(page.locator('#phase')).to_have_text('结束处理')
                 page.locator('#advance').click()
-                page.locator('#projectChoice').select_option('general')
-                expect(page.locator('#projectTitle')).to_have_text('通用四键台')
+                # 切换请求完成前不能向旧项目发送命令。
+                with page.expect_response(lambda r:r.url.endswith('/api/project/select')) as switched:
+                    locked=page.locator('#projectChoice').evaluate("""select=>{
+                        select.value='general'; select.dispatchEvent(new Event('change',{bubbles:true}));
+                        return select.disabled && document.querySelector('[data-command=start]').disabled;
+                    }""")
+                    assert locked, '项目更新时仍能向设备发送命令'
+                assert switched.value.ok
+                expect(page.locator('#projectChoice option:checked')).to_have_text('通用四键台')
                 page.locator('[data-command="start"]').click()
                 expect(page.locator('#receipt')).to_contain_text('设备已受理')
                 page.locator('[data-command="stop"]').click()
@@ -144,8 +151,12 @@ c.ports=JSON.parse(process.argv[3]);require(root+'/src/server.cjs').start(root,c
                 page.locator('#protocolOpen').click()
                 page.locator('#protocolFiles').set_input_files(sample)
                 expect(page.locator('#protocolCount')).to_contain_text('已选 2 / 2 条')
-                page.set_viewport_size({'width':390,'height':844})
-                assert page.locator('#protocolDialog').evaluate('d=>d.scrollWidth <= d.clientWidth + 1'), '导入预览窄屏溢出'
+                for width,height in ((1024,768),(390,844),(320,650)):
+                    page.set_viewport_size({'width':width,'height':height})
+                    dialog=page.locator('#protocolDialog')
+                    assert dialog.evaluate('d=>d.scrollWidth <= d.clientWidth + 1'), '协议预览横向溢出'
+                    save=page.locator('#protocolSave').bounding_box()
+                    assert save and save['y']>=0 and save['y']+save['height']<=height, '保存按钮超出弹窗'
                 page.locator('#protocolSave').click()
                 expect(page.locator('#notice')).to_contain_text('跳过 2 条重复报文')
                 page.set_viewport_size({'width':1440,'height':940})
@@ -157,6 +168,8 @@ c.ports=JSON.parse(process.argv[3]);require(root+'/src/server.cjs').start(root,c
                 for width in (320,390):
                     page.set_viewport_size({'width':width,'height':844})
                     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), '初次接入页面溢出'
+                    entry=page.locator('#asDemo').bounding_box()
+                    assert entry and entry['y']+entry['height']<=844, '首次试跑入口落在首屏外'
                 if shots:
                     page.screenshot(path=str(Path(shots)/'手机接入助手.png'),full_page=True)
                 page.set_viewport_size({'width':1440,'height':940})
@@ -278,15 +291,43 @@ c.ports=JSON.parse(process.argv[3]);require(root+'/src/server.cjs').start(root,c
                 summary=json.loads(Path(totals.value.path()).read_text(encoding='utf8'))
                 assert summary['duplicates']==len(doc['events']) and summary['installations']==1
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), '诊断页汇总窄屏溢出'
-                for tab in ('console','assist','buttons','connect','frames','diagnostics'):
-                    page.locator('[data-tab="'+tab+'"]').click()
-                    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), '手机端溢出 '+tab
+                for width,height in ((320,650),(390,844),(768,900),(1024,768),(1440,900)):
+                    page.set_viewport_size({'width':width,'height':height})
+                    for tab in ('console','assist','buttons','connect','frames','diagnostics'):
+                        nav=page.locator('[data-tab="'+tab+'"]')
+                        nav.click()
+                        expect(nav).to_have_attribute('aria-current','page')
+                        expect(page.locator('[data-tab][aria-current="page"]')).to_have_count(1)
+                        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'{tab} 在 {width}px 溢出'
+                        rect=nav.bounding_box()
+                        assert rect and rect['x']>=0 and rect['x']+rect['width']<=width+1
+                page.set_viewport_size({'width':390,'height':844})
                 page.locator('[data-tab="console"]').click()
+                release=page.locator('#release').bounding_box()
+                assert release and release['height']>=32, '急停释放触摸区太小'
+                page.reload()
+                expect(page.locator('#serverLink')).to_have_text('本机服务在线')
+                page.keyboard.press('Tab')
+                expect(page.locator('.skipLink')).to_be_focused()
+                page.keyboard.press('Enter')
+                expect(page.locator('#pageTitle')).to_be_focused()
+                # 中断网页轮询，旧的设备读数和写入按钮必须立即随离线状态失效。
+                page.route('**/api/state',lambda route:route.abort())
+                expect(page.locator('#serverLink')).to_have_text('本机服务离线',timeout=9000)
+                expect(page.locator('#connectionAlert')).to_be_visible()
+                for field in ('plcLink','mqttLink','ownerLink','emergency','fault','permit'):
+                    expect(page.locator('#'+field)).to_have_text('未知')
+                for control in ('#key-start','#key-estop','#release','[data-hmi=start]','[data-command=query]','#advance','#sendEdited','#projectChoice'):
+                    expect(page.locator(control)).to_be_disabled()
+                page.unroute('**/api/state')
+                expect(page.locator('#serverLink')).to_have_text('本机服务在线',timeout=9000)
+                expect(page.locator('#connectionAlert')).to_be_hidden()
+                expect(page.locator('#key-start')).to_be_enabled()
                 if shots:
                     page.screenshot(path=str(Path(shots)/'手机面板.png'),full_page=True)
                 assert not errors, errors
                 browser.close()
-            print('浏览器通过：四键与急停释放、两种启动、屏上操作、MQTT 收发、按钮编辑/预览/删除、详情、网关独立运行、工程文件与路径识别、快捷检查不改设置、粘贴路径直接识别、错误恢复、只读试连、验屏、诊断导出、汇总去重和六页窄屏')
+            print('浏览器通过：四键与急停释放、两种启动、屏上操作、MQTT 收发、按钮编辑/预览/删除、详情、网关独立运行、工程文件与路径识别、快捷检查不改设置、粘贴路径直接识别、错误恢复、只读试连、验屏、诊断导出、汇总去重、六页五种宽度、键盘跳转、协议保存和断线锁定恢复')
         finally:
             if proc.poll() is None:
                 try:

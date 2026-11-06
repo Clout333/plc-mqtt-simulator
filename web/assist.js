@@ -303,7 +303,11 @@
     await prepareSheet();
     applying=true;
     try{
-      const next=await api('apply',{draft:edited()});epoch=next.epoch;s=next;pollNo=++requestNo;paint(true);
+      await changeProject(async()=>{
+        const next=await api('apply',{draft:edited()});
+        epoch=next.epoch;
+        return next;
+      });
       quickEntry(plan.route);beginChecks(false);await runCheck(true);
     }finally{applying=false;}
   },'正在应用本机连接并检查…');

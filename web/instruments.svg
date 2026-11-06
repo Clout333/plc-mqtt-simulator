@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.65" viewBox="0 0 24 24">
+  <symbol id="wave" viewBox="0 0 24 24"><path d="M2 16h3V8h4v8h4V5h4v11h5"/></symbol>
+  <symbol id="console" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="15" rx="2"/><path d="M3 9h18M8 13v2m4-2v2m4-2v2M8 21h8"/></symbol>
+  <symbol id="route" viewBox="0 0 24 24"><circle cx="5" cy="6" r="2.3"/><circle cx="19" cy="18" r="2.3"/><path d="M7.5 6H16a3 3 0 0 1 0 6H8a3 3 0 0 0 0 6h8.5"/></symbol>
+  <symbol id="network" viewBox="0 0 24 24"><rect x="8" y="3" width="8" height="5" rx="1.3"/><rect x="2" y="16" width="7" height="5" rx="1.3"/><rect x="15" y="16" width="7" height="5" rx="1.3"/><path d="M12 8v4m-6.5 4v-4h13v4"/></symbol>
+  <symbol id="settings" viewBox="0 0 24 24"><path d="M3 6h5m5 0h8M3 12h10m5 0h3M3 18h3m5 0h10"/><circle cx="10.5" cy="6" r="2.5"/><circle cx="15.5" cy="12" r="2.5"/><circle cx="8.5" cy="18" r="2.5"/></symbol>
+  <symbol id="frames" viewBox="0 0 24 24"><path d="M3 7h15m-4-4 4 4-4 4M21 17H6m4-4-4 4 4 4"/></symbol>
+  <symbol id="pulse" viewBox="0 0 24 24"><path d="M2 13h5l3-8 4 14 3-8 2 2h3"/></symbol>
+  <symbol id="book" viewBox="0 0 24 24"><path d="M12 6v14M3 5c4-1 6-1 9 1 3-2 5-2 9-1v13c-4-1-6-1-9 1-3-2-5-2-9-1z"/></symbol>
+  <symbol id="folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 3v3m6-3v3M9 18v3m6-3v3M3 9h3m-3 6h3m12-6h3m-3 6h3"/></symbol>
+  <symbol id="screen" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M9 21h6m-3-4v4"/></symbol>
+  <symbol id="arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+  <symbol id="upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+  <symbol id="external" viewBox="0 0 24 24"><path d="M13 4h7v7m0-7-11 11M9 6H5v14h14v-4"/></symbol>
+</svg>

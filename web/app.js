@@ -3,10 +3,16 @@ const $=id=>document.getElementById(id);
 const physicalNames={start:'启动',stop:'停止',reset:'复位',estop:'急停'};
 const pending=new Set(),views=['console','assist','buttons','connect','frames','diagnostics'];
 let s,editId=null,editingEpoch='',buttonSignature='',frameSignature='',pollNo=0,requestNo=0,loading=false,noticeTimer,askResolver;
+let liveState=false,changingProject=false;
+const offlineReason=$('connectionAlert').textContent;
+const viewTitles={console:'联调台',assist:'工程接入助手',buttons:'物联网按钮',connect:'项目与接入',frames:'MQTT 报文记录',diagnostics:'本机运行诊断'};
+const liveControls='[data-key],[data-release],[data-hmi],[data-command],#advance,#sendEdited,#reconcile,#testScreen,#testMqtt,#testPlc';
+const deviceWrites=new Set(['/api/physical','/api/hmi','/api/button/send','/api/advance','/api/link','/api/reconcile']);
 function element(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;}
-function setText(id,v){$(id).textContent=v;}
+function setText(id,v){const node=$(id);if(node.textContent!==String(v))node.textContent=v;}
 function notice(msg,bad=false){clearTimeout(noticeTimer);const n=$('notice');n.textContent=msg;n.className='notice'+(bad?' bad':'');n.hidden=false;noticeTimer=setTimeout(()=>{n.hidden=true;},bad?12000:6000);}
 async function post(url,data={}){
+  if(!liveState&&deviceWrites.has(url))throw Error('无法取得实时状态，请等本机服务恢复后重试。');
   const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...data,epoch:s?.epoch})});
   const body=await r.json();if(!r.ok)throw Error(body.error||'操作失败');return body;
 }
@@ -17,8 +23,11 @@ function chooseView(v){
   if(!views.includes(v))v='console';
   if(location.hash!=='#'+v){clearTimeout(noticeTimer);$('notice').hidden=true;}
   for(const id of views)$(id).hidden=id!==v;
-  document.querySelectorAll('[data-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===v)));
-  if(location.hash!=='#'+v)history.replaceState(null,'','#'+v);
+  document.querySelectorAll('[data-tab]').forEach(b=>{
+    if(b.dataset.tab===v)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');
+  });
+  setText('pageTitle',viewTitles[v]);document.title=viewTitles[v]+' · 工业设备联调台';
+  if(location.hash!=='#'+v){history.replaceState(null,'','#'+v);if(s)window.scrollTo(0,0);}
   if(v==='assist'&&s)window.BenchAssistant?.open(s);
   if(v==='diagnostics')window.BenchDiagnostics?.open();
 }
@@ -67,7 +76,7 @@ function drawButtons(){
   const list=s.project.commands;const manage=[],send=[];
   for(const c of list){
     const row=element('button',undefined,'buttonRow'+(editId===c.id?' selected':''));row.type='button';row.append(element('span',c.name),element('small','QoS '+c.qos));row.onclick=()=>edit(c);manage.push(row);
-    const b=element('button',c.name);b.dataset.command=c.id;b.onclick=()=>act('mqtt-'+c.id,async()=>{
+    const b=element('button',c.name);b.dataset.command=c.id;b.disabled=!liveState;b.onclick=()=>act('mqtt-'+c.id,async()=>{
       const built=new Set(['device','prefix','timestamp','timestampSeconds','seq','seconds','task','activeTask']);
       const parameters=[...new Set([...((c.topic+' '+c.replyTopic+' '+c.payload).matchAll(/\{\{([\p{L}][\p{L}\p{N}_]*)\}\}/gu))].map(x=>x[1]).filter(k=>!built.has(k)))];
       let values={};
@@ -94,37 +103,92 @@ function frames(){
 }
 function paint(force=false){
   if(!document.getElementById('assist').hidden)window.BenchAssistant?.open(s);
-  const p=s.project,l=s.links,v=s.plc;
+  const p=s.project,l=s.links,v=l.plc?s.plc:null;
   if(force||editingEpoch!==s.epoch){
     editingEpoch=s.epoch;options($('projectChoice'),s.projects.map(x=>[x.id,x.name]));$('projectChoice').value=p.id;
-    setText('projectTitle',p.name);setText('routeText',(p.source==='model'?'内置 PLC 模型':'外部 PLC 仿真器')+'  /  '+(p.owner==='hmi'?'触摸屏接入 MQTT':'网关模块接入 MQTT'));
+    setText('routeText',(p.source==='model'?'内置 PLC 模型':'外部 PLC 仿真器')+'  /  '+(p.owner==='hmi'?'触摸屏接入 MQTT':'网关模块接入 MQTT'));
     projectFields();edit(p.commands[0]||blank());$('receipt').hidden=true;
     setText('screenBrand',s.brands.hmi[p.hmi][0]+' · '+(p.receiver==='external'?'外部设备操作':'模拟屏'));
-    setText('topicHint',p.prefix+'  ·  '+(p.receiver==='builtin'?'内置设备端':'等待项目自己的设备端'));
+    setText('topicHint',p.prefix+'  ·  '+(p.receiver==='builtin'?'内置设备端':'外部设备端'));
     setText('footerPorts','本机 127.0.0.1　·　网页 '+s.ports.http+'　·　MQTT '+s.ports.mqtt+'　·　'+(p.source==='model'?'模型 Modbus '+s.ports.modbus:'目标 PLC '+p.host+':'+p.port));
   }
-  const lamp=(id,ok)=>$(id).classList.toggle('good',!!ok);lamp('plcLamp',l.plc);lamp('mqttLamp',l.broker);lamp('ownerLamp',l.device&&l.matched);
+  const lamp=(id,ok)=>$(id).classList.toggle('good',!!ok);lamp('plcLamp',l.plc);lamp('mqttLamp',l.broker&&l.platform);lamp('ownerLamp',l.device&&l.matched);
   if(buttonSignature!==JSON.stringify(p.commands))drawButtons();
   $('ownerLink').title=l.subscriptions.join('\n');
   setText('plcLink',l.plc?'通信正常':'未接通');$('plcLink').title=l.plcError;
   setText('mqttLink',l.platform?'就绪':'连接中');setText('ownerName',p.owner==='hmi'?'触摸屏 MQTT':'网关 MQTT');setText('ownerLink',l.device?(l.matched?'已订阅':l.subscribed?'已订阅其他主题':'已连接，待订阅'):'等待设备');
-  setText('serverLink','本机服务在线');$('serverLink').classList.remove('offline');
+  setText('serverLink','本机服务在线');$('serverLink').className='serviceStatus online';
+  $('connectionAlert').hidden=true;document.querySelectorAll('.linkRead i').forEach(i=>i.classList.remove('unknown'));
+  document.querySelectorAll('[data-command],#sendEdited,#reconcile,#testMqtt,#testPlc,#projectChoice').forEach(b=>b.disabled=false);
   for(const k of Object.keys(physicalNames))$('key-'+k).disabled=!p.buttons[k]||!l.plc;
   setText('note-start',!p.buttons.start?'项目停用':p.startMode==='enable'?'只给许可':'直接启动');
   setText('note-stop',p.buttons.stop?'结束任务':'项目停用');setText('note-reset',p.buttons.reset?'清除故障':'项目停用');
   $('release').disabled=!p.buttons.estop||!l.plc;setText('release',p.buttons.estop?'释放急停':'项目停用');$('key-estop').classList.toggle('down',!!v?.estop);
   setText('permit',!v?'未知':p.startMode==='direct'||!p.buttons.start?'无需授权':v.enabled?'已使能':'待使能');
   setText('emergency',!v?'未知':v.estop?'急停按下':'已释放');setText('fault',!v?'未知':v.fault?'待复位':'正常');
+  $('emergency').dataset.alert=String(!!v?.estop);$('fault').dataset.alert=String(!!v?.fault);
+  const progress=$('progress');progress.setAttribute('aria-valuetext',v?v.progress+'%':'未取得读数');
   setText('phase',v?['','待机','准备中','作业中','结束处理'][v.running]:'通信中断');setText('progressValue',v?v.progress+'%':'—');$('progress').value=v?.progress||0;
   setText('currentTask',v?v.task_seq?'任务 '+v.task_seq+'　·　'+v.elapsed_seconds+' / '+v.target_seconds+' 秒':'当前无任务':l.plcError||'等待 PLC');
   document.querySelectorAll('[data-hmi]').forEach(b=>{b.disabled=p.receiver==='external'||!l.screenOn||!v||(b.dataset.hmi==='start'&&(v.busy||v.fault||v.estop||v.maintenance||p.startMode==='enable'&&p.buttons.start&&!v.enabled))||(b.dataset.hmi==='stop'&&!v.busy);});
   $('advance').disabled=p.source!=='model'||!v?.busy;$('testScreen').checked=l.screenOn;$('testScreen').disabled=p.receiver==='external';$('testMqtt').checked=l.mqttAllowed;$('testPlc').checked=l.plcAllowed;frames();
   window.BenchDiagnostics?.ready(s.epoch);window.BenchImporter?.project(s);
 }
+function clearLiveReadings(phase,task){
+  liveState=false;
+  $('projectChoice').disabled=true;
+  document.querySelectorAll(liveControls).forEach(b=>b.disabled=true);
+  document.querySelectorAll('.linkRead i').forEach(i=>{i.classList.remove('good');i.classList.add('unknown');});
+  for(const id of ['plcLink','mqttLink','ownerLink','permit','emergency','fault'])setText(id,'未知');
+  $('plcLink').title='';$('ownerLink').title='';
+  $('emergency').removeAttribute('data-alert');$('fault').removeAttribute('data-alert');$('key-estop').classList.remove('down');
+  setText('phase',phase);setText('progressValue','—');$('progress').value=0;$('progress').setAttribute('aria-valuetext','未取得读数');
+  setText('currentTask',task);
+}
+function showServiceOffline(){
+  clearLiveReadings('未取得读数','等待本机服务恢复');
+  setText('serverLink','本机服务离线');$('serverLink').className='serviceStatus offline';
+  setText('connectionAlert',offlineReason);$('connectionAlert').hidden=false;
+}
+async function changeProject(apply){
+  if(changingProject)throw Error('正在更新项目，请稍候。');
+  changingProject=true;
+  // 已发出的旧项目轮询即使晚到，也不能提前解锁按钮。
+  pollNo=++requestNo;
+  clearLiveReadings('正在更新项目','等待读取项目状态');
+  setText('connectionAlert','正在更新项目，等待读取新的设备状态。');
+  $('connectionAlert').hidden=false;
+  try{
+    const next=await apply();
+    acceptState(next,++requestNo,true);
+  }finally{
+    changingProject=false;
+    if(!liveState)await refresh();
+  }
+}
+function acceptState(next,request,force=false){
+  if(request<pollNo)return;
+  pollNo=request;
+  s=next;
+  liveState=true;
+  paint(force);
+}
 async function refresh(force=false){
-  const n=++requestNo;
-  try{const r=await fetch('/api/state',{cache:'no-store'});if(!r.ok)throw Error('服务正在切换或未连接');const next=await r.json();if(n<pollNo)return;pollNo=n;s=next;paint(force);}
-  catch(e){setText('serverLink','服务未就绪');$('serverLink').classList.add('offline');if(!s)setText('projectTitle','等待本机服务');}
+  if(changingProject)return;
+  const request=++requestNo;
+  let next;
+  try{
+    const response=await fetch('/api/state',{cache:'no-store',signal:AbortSignal.timeout(5000)});
+    if(!response.ok)throw Error('未取得设备状态');
+    next=await response.json();
+  }catch{
+    if(request>=pollNo){
+      pollNo=request;
+      showServiceOffline();
+    }
+    return;
+  }
+  acceptState(next,request,force);
 }
 function ask(title,label,defaultValue){
   if(askResolver)return Promise.resolve(null);
@@ -156,17 +220,25 @@ $('newButton').onclick=()=>edit(blank());$('buttonForm').onsubmit=e=>{e.preventD
 $('preview').onclick=()=>act('preview',async()=>{const c=buttonValue();c.id||='preview';const r=await post('/api/button/preview',{button:c,values:params()});$('previewBox').hidden=false;setText('previewBox',r.topic+'\n'+r.raw);});
 $('sendEdited').onclick=()=>act('sendEdited',async()=>{const v=params();const id=await saveButton();$('btnValues').value=JSON.stringify(v);const r=await transmit(id,v);$('previewBox').hidden=false;setText('previewBox',r.topic+'\n'+r.raw+'\n\n'+JSON.stringify(r.response,null,2));});
 $('deleteButton').onclick=()=>act('delete',async()=>{if(!editId||!confirm('删除本项目的这个 MQTT 按钮？'))return;await post('/api/button/delete',{id:editId});await refresh();edit(s.project.commands[0]||blank());notice('按钮已删除');});
-$('projectChoice').onchange=e=>act('switch',async()=>{try{await post('/api/project/select',{id:e.target.value});await refresh(true);}finally{$('projectChoice').value=s.project.id;}});
-$('projectForm').onsubmit=e=>{e.preventDefault();act('saveProject',async()=>{await post('/api/project/save',{project:projectValue()});await refresh(true);notice('项目配置已应用');});};
+$('projectChoice').onchange=e=>{
+  const id=e.target.value;
+  return act('switch',async()=>{
+    try{await changeProject(()=>post('/api/project/select',{id}));}
+    finally{if(s)$('projectChoice').value=s.project.id;}
+  });
+};
+$('projectForm').onsubmit=e=>{e.preventDefault();act('saveProject',async()=>{await changeProject(()=>post('/api/project/save',{project:projectValue()}));notice('项目配置已应用');});};
 $('pSource').onchange=enableNativeFields;$('pHmi').onchange=$('pPlc').onchange=brandAdvice;
 $('pDriver').onchange=()=>{enableNativeFields();$('pPort').value={modbus:15021,s7:102,mc3e:5007}[$('pDriver').value];};
 $('probe').onclick=()=>act('probe',async()=>{const l=await post('/api/probe');notice(l.plc?'已读到点表版本、启动代次及当前阶段':l.plcError,!l.plc);});
 $('reconcile').onclick=()=>act('reconcile',async()=>notice((await post('/api/reconcile')).message));
-$('newProject').onclick=()=>act('new',async()=>{const name=await ask('新建联调项目','项目名称','');if(!name)return;await post('/api/project/new',{name});await refresh(true);notice('新项目已打开');});
+$('newProject').onclick=()=>act('new',async()=>{const name=await ask('新建联调项目','项目名称','');if(!name)return;await changeProject(()=>post('/api/project/new',{name}));notice('新项目已打开');});
 $('importProject').onclick=()=>$('importFile').click();$('importFile').onchange=e=>act('import',async()=>{const file=e.target.files[0];e.target.value='';if(!file)return;const pkg=JSON.parse(BenchText.decode(await file.arrayBuffer()));if(!pkg.project?.device)throw Error('缺少项目设备编号');
   let device=pkg.project.device,prefix=pkg.project.prefix;
   if(confirm('是否为导入副本指定新的设备编号和主题前缀？在同一平台保留原项目时请选择“确定”。')){device=await ask('导入项目','新的设备编号',device+'_2');if(!device)return;prefix=await ask('导入项目','该项目的主题前缀','/sim/'+device+'/');if(!prefix)return;}
-  await post('/api/project/import',{package:pkg,device,prefix});await refresh(true);notice('导入项目已打开');});
+  await changeProject(()=>post('/api/project/import',{package:pkg,device,prefix}));notice('导入项目已打开');});
 for(const [id,key] of [['testMqtt','mqtt'],['testPlc','plc'],['testScreen','screen']])$(id).onchange=e=>act(id,async()=>{await post('/api/link',{key,value:e.target.checked});notice('连接设置已更新');});
 $('filter').oninput=()=>{if(s)frames();};$('closeDetail').onclick=()=>$('detail').close();
+document.querySelector('.skipLink').onclick=e=>{e.preventDefault();$('pageTitle').focus();};
+document.querySelectorAll(liveControls).forEach(b=>b.disabled=true);
 chooseView(location.hash.slice(1)||(location.pathname==='/platform'?'buttons':'console'));void refresh();setInterval(async()=>{if(loading||document.hidden)return;loading=true;try{await refresh();}finally{loading=false;}},1100);

@@ -29,12 +29,16 @@
   }
   function draw(){
     $('protocolWork').hidden=!rows.length;
+    $('protocolFooter').hidden=!rows.length;dialog.classList.toggle('reviewing',rows.length>0);
+    $('protocolChoose').textContent=rows.length?'继续添加文件':'选择文件';
     list.replaceChildren(...rows.map((r,i)=>{
       const line=element('div',undefined,'protocolRow'+(current===i?' active':''));
       const check=element('input');check.type='checkbox';check.checked=r.selected;check.setAttribute('aria-label','选择 '+r.name);
       check.onchange=()=>{r.selected=check.checked;footer();};
       const b=element('button');b.type='button';b.append(element('b',r.name||'待命名报文'),element('small',names[r.kind]+(eligible(r)?'':' · 需核对')));
-      b.onclick=()=>{current=i;draw();list.children[i].querySelector('button').focus({preventScroll:true});};line.append(check,b);return line;
+      b.setAttribute('aria-current',current===i?'true':'false');
+      b.onclick=()=>{current=i;draw();list.children[i].querySelector('button').focus({preventScroll:true});};
+      const hit=element('label',undefined,'protocolCheck');hit.append(check);line.append(hit,b);return line;
     }));
     showEditor();footer();showWarnings();
   }
