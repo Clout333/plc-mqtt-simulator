@@ -7,11 +7,19 @@
   const offsets={coil:'线圈基址',holding:'保持寄存器基址',start:'启动模拟位',stop:'停止模拟位',reset:'复位模拟位',estop:'急停模拟位'};
   let epoch='',catalog=null,plan=null,checked=null,screen=null,report=null,step=1,working=false,applying=false,dirty=false,catalogRequest='';
   let picked={plc:null,hmi:null,gateway:null},liveCheck=false,lastCheck=0;
+  let identifiedPath='',lastSelection='',quickView=false,checkNumber=0;
   const active=()=>!el('assist').hidden;
+  function quickEntry(route){
+    const example=route==='demo';
+    txt('asQuickTitle',example?'先试一次':'检查当前项目');
+    txt('asDemo',example?'测试本机示例':'检查已保存的连接');
+    txt('asQuickHint',example?'还没有厂家软件？先读取内置 PLC 的状态，再看模拟设备有没有回消息。':'按当前项目已保存的设置，查看 PLC、触摸屏和 MQTT 哪一段已经连通。');
+    txt('asQuickScope',example?'只读取状态和记录。':'只检查连接，保留现有设置。');
+  }
   function opts(id,pairs){const n=el(id);n.replaceChildren(...pairs.map(([k,title])=>{const o=node('option',title);o.value=k;return o;}));}
-  function msg(value='',bad=false){const n=el('asStatus');n.textContent=value;n.className='notice'+(bad?' bad':'');n.hidden=!value;}
+  function msg(value='',bad=false){const n=el('asStatus');n.textContent=value;n.className='notice'+(bad?' bad':'');n.hidden=!value;if(value&&bad&&active())n.scrollIntoView({block:'nearest'});}
   function show(n,focus=true){
-    step=n;
+    step=n;checkNumber++;
     for(let i=1;i<=3;i++){
       el('asStep'+i).hidden=i!==n;
       const stage=el('stage'+i);stage.classList.toggle('done',i<n);
@@ -39,7 +47,10 @@
     el('asWithScreenL').hidden=route!=='gateway';
     el('asHmiL').hidden=route!=='hmi'&&!(route==='gateway'&&el('asWithScreen').checked);
     el('asRoleL').hidden=route!=='hmi';
-    txt('asRouteHint',({plc:'打开厂家的 PC 仿真运行端。由本机提供模拟屏、网关或 MQTT 平台。',hmi:'让自己的屏工程在电脑上运行。暂时没有 PLC 程序时，可以直接读内置模型。',gateway:'运行网关的 PC 程序或脚本，本机提供 Broker、模拟平台和可选的 PLC 模型。',demo:'内置模型、模拟屏和本地平台可直接通信；适合先熟悉流程。'})[route]);
+    const plc=native?(catalog?.kits[get('asKit')]?.name||'我的 PLC 程序'):'内置 PLC';
+    const hmi=el('asHmiL').hidden?'模拟触摸屏':(catalog?.screens[get('asHmi')]?.name||'我的触摸屏');
+    const owner=route==='gateway'?'我的网关程序':route==='hmi'?(get('asRole')==='mqtt'?'我的触摸屏':'模拟网关'):(s?.project?.owner==='gateway'?'模拟网关':'模拟触摸屏');
+    txt('asRouteHint',el('asManual').open||report||s?.project?.guide?'本次使用'+plc+'和'+hmi+'，由'+owner+'收发 MQTT。':'');el('asRouteHint').hidden=!el('asRouteHint').textContent;
   }
   function setup(state,cat){
     catalog=cat;epoch=state.epoch;plan=checked=screen=report=null;picked={plc:null,hmi:null,gateway:null};dirty=false;
@@ -50,7 +61,9 @@
     const g=state.project.guide||{};
     for(const role of ['plc','hmi','gateway'])if(g[role+'File'])picked[role]={name:g[role+'File']};
     el('asMatches').hidden=true;el('asMatches').replaceChildren();put('asPath','');el('asInventory').replaceChildren();el('asScreenForm').hidden=true;
-    msg();formVisibility();show(1,false);
+    identifiedPath='';lastSelection='';quickView=false;el('asManual').open=false;
+    el('asTarget').open=false;el('asReadTools').open=false;el('asKnown').removeAttribute('data-driver');el('asKnown').removeAttribute('data-default-value');
+    quickEntry(last.route);msg();formVisibility();show(1,false);
   }
   async function open(state){
     if(!state||!active()||applying||catalogRequest===state.epoch)return;
@@ -68,7 +81,8 @@
     finally{if(catalogRequest===token)catalogRequest='';}
   }
   function selectFile(role,item){
-    picked[role]=item;if(!item)return;
+    picked[role]=item;
+    if(!item){formVisibility();return;}
     if(role==='plc'&&item.key)put('asKit',item.key);
     if(role==='hmi'&&item.key)put('asHmi',item.key);
     if(picked.gateway){put('asRoute','gateway');el('asWithPlc').checked=!!picked.plc;el('asWithScreen').checked=!!picked.hmi;}
@@ -96,14 +110,21 @@
       for(const name of r.unclassified){const o=node('option',name);o.value=name;list.append(o);}label.append(list);host.append(label);
       const actions=node('div',undefined,'actions');
       for(const [role,title] of [['plc','用作 PLC 程序'],['hmi','用作屏工程'],['gateway','用作网关程序']]){
-        const b=node('button',title);b.onclick=()=>{selectFile(role,{name:list.value});msg('已选用 '+list.value+'，请核对右侧程序类型及品牌。');};actions.append(b);
+        const b=node('button',title);b.onclick=()=>{selectFile(role,{name:list.value});el('asManual').open=true;msg('已选用 '+list.value+'，可在下方核对品牌。');};actions.append(b);
       }
-      host.append(actions,node('p','请选源码的用途和品牌。只有 ST 等程序块时，先用配套的编程软件把它加入测试工程，再编译运行。','hint'));
+      host.append(actions,node('p','请选源码的用途和品牌。ST 等程序块需先在厂家软件中加入工程并编译运行。','hint'));
     }
-    if(!found&&!r.unclassified.length)host.append(node('p','没有识别到工程文件。可粘贴更具体的工程路径，或直接在右侧选择程序。','hint'));
+    if(!found&&!r.unclassified.length)host.append(node('p','没有找到可识别的工程。请换一个文件，或在下方手动选择程序和品牌。','hint'));
     if(r.hmi.length||r.plc.length){
       put('asRoute',r.hmi.length?'hmi':'plc');el('asWithPlc').checked=!!r.plc.length;formVisibility();
     }
+    if(r.plc.length||r.hmi.length)el('asManual').open=true;
+    formVisibility();
+  }
+  async function readPath(){
+    const path=get('asPath').trim();
+    if(!path)throw Error('请粘贴文件或文件夹的完整路径，或点击“选择工程文件”。');
+    const result=await api('path',{path});identifiedPath=path;renderFiles(result);
   }
   async function localFiles(fileList){
     const files=Array.from(fileList);if(!files.length)return;
@@ -118,12 +139,15 @@
       }
       meta.push({name:f.name,vendor});
     }
-    renderFiles(await api('recognise',{files:meta}));
+    const result=await api('recognise',{files:meta});put('asPath','');identifiedPath='';renderFiles(result);
   }
   function selection(){
     const route=get('asRoute');
     if(route!=='demo'&&report){
-      for(const [role,needed] of [['plc',route==='plc'||el('asWithPlc').checked],['hmi',route==='hmi'||route==='gateway'&&el('asWithScreen').checked]]){
+      if(!report.candidates.length&&!Object.values(picked).some(Boolean)&&!el('asManual').open){
+        throw Error(report.unclassified.length?'请为源码选择用途，或展开“手动选择程序或品牌”。':'请换一个工程文件，或展开“手动选择程序或品牌”。');
+      }
+      for(const [role,needed] of [['plc',route==='plc'||['hmi','gateway'].includes(route)&&el('asWithPlc').checked],['hmi',route==='hmi'||route==='gateway'&&el('asWithScreen').checked]]){
         const choices=report.candidates.filter(v=>v.role===role);
         if(needed&&!picked[role]&&(choices.length>1||choices[0]?.confirm))throw Error(choices.length>1?'目录里有多个'+(role==='plc'?' PLC ':'触摸屏')+'工程，请先选择具体版本。':'请先确认文件的厂商和工程类型。');
       }
@@ -184,34 +208,65 @@
     el('asTarget').hidden=el('asReadTools').hidden=!next.native;
     if(next.native){
       nativeFields(next.profile);const driver=next.profile.native.driver,known=el('asKnown');
-      if(known.dataset.driver!==driver){known.value=next.bindings.find(b=>b.label.includes('期望 1'))?.value||'';known.dataset.driver=driver;}
+      const suggested=next.bindings.find(b=>b.label.includes('期望 1'))?.value||'';
+      if(known.dataset.driver!==driver||!known.value||known.value===known.dataset.defaultValue)known.value=suggested;
+      known.dataset.driver=driver;known.dataset.defaultValue=suggested;
       txt('asKnownHint',({s7:'可填 DB101.DBW0 或 DB100.DBX1.0。S7-200 也可填 VW100 或 V10.0。',mc3e:'可填 M8 或 D100。选一个能在 GX 仿真窗口看到的变量核对。',modbus:'可填 HR 0 或 C 8，使用保持寄存器或线圈的零基地址。'})[driver]);
     }
     el('asExample').hidden=!next.sample;txt('asExampleText',next.sample?sampleText(next.sample):'');
-    txt('asBindingsHint',next.bindings.length?'点右侧数值可复制。端口按软件运行端的实际设置填写。':'检查只读取状态并查询记录。');
+    txt('asBindingsHint',next.bindings.length?'点击数值即可复制到厂家软件。':'本机示例使用内置参数。');
     if(!next.native)el('asTarget').open=false;
   }
-  async function makePlan(){const next=await api('plan',{draft:selection()});el('asProbeRows').replaceChildren();drawPlan(next);show(2);}
+  async function makePlan(){
+    if(get('asPath').trim()&&get('asPath').trim()!==identifiedPath)await readPath();
+    if(!report&&!el('asManual').open&&!s.project.guide){
+      el('asManual').open=true;
+      throw Error('请选择要测试的程序和品牌，再点“查看连接步骤”。也可以直接选择工程文件。');
+    }
+    const draft=selection(),selectionKey=JSON.stringify(draft);
+    if(quickView||!plan||lastSelection!==selectionKey){
+      drawPlan(await api('plan',{draft}));el('asTarget').open=false;el('asReadTools').open=false;
+    }
+    lastSelection=selectionKey;quickView=false;el('asProbeRows').replaceChildren();show(2);
+  }
+  async function prepareSheet(){
+    if(dirty)drawPlan(await api('plan',{draft:edited()}));
+  }
   const statusNames={pass:'已核对',fail:'需处理',wait:'待验证',skip:'未配置'};
   function renderRows(id,rows){
     const box=el(id);box.replaceChildren();
     for(const r of rows){const v=node('div',undefined,'as-row '+r.status),head=node('div',undefined,'as-rowhead');head.append(node('strong',r.title),node('span',statusNames[r.status]));v.append(head,node('p',r.detail));if(r.next)v.append(node('small',r.next));box.append(v);}
   }
   async function runCheck(query,background=false){
-    const before=get('asTopic'),x=await api('check',{topicId:before,query});
-    if(!active()||step!==3||background&&(working||before!==get('asTopic')))return;
+    const number=++checkNumber,before=get('asTopic'),x=await api('check',{topicId:before,query});
+    if(!active()||step!==3||number!==checkNumber||background&&(working||before!==get('asTopic')))return;
     const sameMenu=checked&&JSON.stringify(x.topics)===JSON.stringify(checked.topics);checked=x;lastCheck=Date.now();
     if(!sameMenu||el('asTopic').options.length!==x.topics.length)opts('asTopic',x.topics.map(t=>[t.id,t.name+' · '+t.topic]));put('asTopic',x.selected);el('asTopicL').hidden=x.topics.length<2;
     renderRows('asChecks',x.items);el('asScreenBox').hidden=!x.screen;
-    const missing=x.items.find(r=>['fail','wait'].includes(r.status));
-    txt('asNext',missing?(missing.next||missing.detail):'本次接法的检查已完成。可进入联调台测试按钮、任务与自定义报文。');
+    const missing=x.items.find(r=>r.status==='fail')||x.items.find(r=>r.status==='wait');
+    const skipped=x.items.some(row=>row.status==='skip'),rejected=x.items.some(row=>row.rejected);
+    txt('asOutcome',missing?missing.title+(missing.status==='fail'?'需要处理':'待确认'):skipped?'已检查可用连接':rejected?'通信已通，设备拒绝了请求':'连接检查通过');
+    txt('asNext',missing?(missing.next||missing.detail):skipped?'已核对当前可检查的项目。要验证设备回复，请先在物联网按钮中填写回执主题。':rejected?'请打开报文记录，查看设备回复的拒绝原因。':'已读到 PLC 状态并收到设备回复，可以去联调台测试按钮。');
+    const action=el('asAction');
+    action.hidden=missing?.key==='screen';
+    if(!action.hidden){
+      const route=missing?.key==='reply'||(!missing&&skipped)||missing?.key==='topic'&&!x.topics.length?'buttons':missing?'settings':'console';
+      action.textContent=({buttons:'打开物联网按钮',settings:'查看连接设置',console:'进入联调台'})[route];
+      action.onclick=()=>{if(route==='settings'&&!quickView){show(2);if(plan?.native&&missing?.key==='plc')el('asTarget').open=true;}else chooseView(route==='settings'?'connect':route);};
+    }
     txt('asCheckTime','最近一次检查　'+new Date(x.checked).toLocaleTimeString('zh-CN')+'　·　'+x.items.filter(r=>r.status==='pass').length+' 项已核对');
   }
   el('asChoose').onclick=()=>el('asFiles').click();
   el('asFiles').onchange=e=>{const files=Array.from(e.target.files);e.target.value='';run(()=>localFiles(files));};
   const drop=el('asDrop');drop.ondragover=e=>{e.preventDefault();drop.classList.add('over');};drop.ondragleave=()=>drop.classList.remove('over');
   drop.ondrop=e=>{e.preventDefault();drop.classList.remove('over');const files=[...e.dataTransfer.files];run(()=>localFiles(files));};
-  el('asRead').onclick=()=>run(async()=>renderFiles(await api('path',{path:get('asPath')})),'正在读取工程目录…');
+  el('asRead').onclick=()=>run(readPath,'正在识别工程…');
+  el('asPath').oninput=()=>{
+    if(get('asPath').trim()===identifiedPath)return;
+    identifiedPath='';report=null;picked={plc:null,hmi:null,gateway:null};
+    el('asMatches').replaceChildren();el('asMatches').hidden=true;formVisibility();msg();
+  };
+  el('asManual').ontoggle=()=>{if(catalog)formVisibility();};
   el('asPath').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();el('asRead').click();}};
   el('asDiscover').onclick=()=>run(async()=>{
     const n=el('asInventory');n.textContent='正在检查本机…';const r=await api('inventory');n.replaceChildren();
@@ -220,24 +275,36 @@
       if(item.ports?.length)n.append(node('small','该进程监听 '+item.ports.join('、')+'；请核对通信端口。','hint'));}
     n.append(node('p',(r.items.length?'':'没有在常用位置找到对应软件。')+r.note,'hint'));
   });
-  ['asRoute','asWithPlc','asWithScreen','asRole'].forEach(k=>el(k).onchange=formVisibility);
-  el('asPlan').onclick=()=>run(makePlan);el('asDemo').onclick=()=>run(async()=>{put('asRoute','demo');formVisibility();await makePlan();});
-  el('asBack1').onclick=()=>{checked=null;msg();show(1);};el('asBack2').onclick=()=>{msg();show(2);};
-  el('asCopy').onclick=()=>run(()=>{if(dirty)throw Error('请先更新接入单');return copy(connectionSheet());});
-  el('asPoints').onclick=()=>run(async()=>{if(dirty)throw Error('请先更新接入单');const v=await api('points',{draft:edited()});download('本方案PLC点表.csv',v.csv,'text/csv');});
-  el('asTarget').oninput=()=>{dirty=true;checked=null;el('asProbeRows').replaceChildren();txt('asBindingsHint','参数已修改，请先点“更新接入单”。');};
+  ['asRoute','asWithPlc','asWithScreen','asRole','asKit','asHmi'].forEach(k=>el(k).onchange=formVisibility);
+  el('asPlan').onclick=()=>run(makePlan,'正在准备连接步骤…');
+  function beginChecks(quick){
+    quickView=quick;screen=null;checked=null;el('asChecks').replaceChildren();el('asScreenBox').hidden=true;
+    el('asScreenForm').hidden=true;el('asAction').hidden=true;el('asTopicL').hidden=true;opts('asTopic',[]);
+    txt('asOutcome','正在检查连接');txt('asNext','');txt('asCheckTime','');
+    txt('asBack2',quick?'返回选择工程':'返回连接设置');show(3);
+  }
+  el('asDemo').onclick=()=>run(async()=>{
+    drawPlan(await api('current'));beginChecks(true);await runCheck(true);
+  },'正在读取 PLC 状态并检查 MQTT 消息…');
+  el('asBack1').onclick=()=>{checked=null;msg();show(1);};el('asBack2').onclick=()=>{msg();show(quickView?1:2);};
+  el('asCopy').onclick=()=>run(async()=>{await prepareSheet();return copy(connectionSheet());});
+  el('asPoints').onclick=()=>run(async()=>{await prepareSheet();const v=await api('points',{draft:edited()});download('本方案PLC点表.csv',v.csv,'text/csv');});
+  el('asTarget').oninput=()=>{dirty=true;checked=null;el('asProbeRows').replaceChildren();txt('asBindingsHint','参数已修改，复制、下载或保存时会使用新值。');};
   el('asDriver').onchange=async()=>run(async()=>{
-    const d=selection();d.driver=get('asDriver');const next=await api('plan',{draft:d});drawPlan(next);el('asTarget').open=true;
+    const old=plan.profile,driver=get('asDriver'),draft=edited();
+    const previousDriver=old.native.driver;
+    if(draft.port===catalog.ports[previousDriver])delete draft.port;
+    if(driver==='s7'&&previousDriver!=='s7')delete draft.s7;
+    const next=await api('plan',{draft});drawPlan(next);el('asTarget').open=true;
   });
-  el('asUpdate').onclick=()=>run(async()=>{drawPlan(await api('plan',{draft:edited()}));msg('接入单已按新参数更新');});
   el('asProbe').onclick=()=>run(async()=>{const d=edited();drawPlan(await api('plan',{draft:d}));const results=await api('probe',{draft:d});renderRows('asProbeRows',results);},'正在读取仿真端的测试点…');
   el('asReadKnown').onclick=()=>run(async()=>{const d=edited(),address=get('asKnown');drawPlan(await api('plan',{draft:d}));const result=await api('read',{draft:d,address});renderRows('asProbeRows',[result]);},'正在读取这个变量…');
   el('asApply').onclick=()=>run(async()=>{
-    if(dirty)throw Error('请先更新接入单，核对新地址后再应用。');
+    await prepareSheet();
     applying=true;
     try{
       const next=await api('apply',{draft:edited()});epoch=next.epoch;s=next;pollNo=++requestNo;paint(true);
-      screen=null;el('asScreenForm').hidden=true;opts('asTopic',[]);show(3);await runCheck(true);
+      quickEntry(plan.route);beginChecks(false);await runCheck(true);
     }finally{applying=false;}
   },'正在应用本机连接并检查…');
   el('asCheck').onclick=()=>run(()=>runCheck(true));el('asTopic').onchange=()=>run(()=>runCheck(false));
@@ -248,6 +315,7 @@
   });
   el('asConfirm').onclick=()=>run(async()=>{if(!screen)throw Error('请先开始验屏');const v=await api('screen-confirm',{id:screen.id,value:get('asScreenNumber')});el('asScreenForm').hidden=true;await runCheck(false);msg(v.message);});
   el('asExport').onclick=()=>{
+    if(!checked){msg('还没有检查结果，请先点“重新检查”。',true);return;}
     download('工程接入单与检查结果.txt','\uFEFF'+connectionSheet(),'text/plain');
   };
   window.BenchAssistant={open};if(typeof s!=='undefined'&&s&&active())open(s);

@@ -3,6 +3,7 @@ const fs=require('node:fs'),path=require('node:path'),net=require('node:net'),cr
 const {spawn,spawnSync}=require('node:child_process');
 const {load}=require('../src/config.cjs');
 const {readJSON,writeJSON}=require('../src/store.cjs');
+const {openPage}=require('./open-page.cjs');
 const root=path.resolve(__dirname,'..'),logs=path.join(root,'logs'),recordFile=path.join(logs,'instance.json');
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const hash=c=>crypto.createHash('sha256').update(JSON.stringify(c)).digest('hex');
@@ -18,13 +19,23 @@ function dependencies(){
   if(r.error||r.status!==0)throw Error('依赖准备失败：'+(r.error?.message||'请查看npm输出；未启动服务'));
 }
 function free(port){return new Promise((ok,no)=>{const s=net.createServer();s.once('error',()=>no(Error('端口'+port+'已占用，未停止任何已有程序；请在project.json选择空闲端口')));s.listen(port,'127.0.0.1',()=>s.close(ok));});}
-function openBrowser(port,firstRun=false){
-  const url=`http://127.0.0.1:${port}/${firstRun?'#assist':''}`;
-  if(process.platform==='win32')spawn('powershell.exe',['-NoProfile','-Command',`Start-Process '${url}'`],{windowsHide:true,stdio:'ignore'}).unref();
-  else spawn(process.platform==='darwin'?'open':'xdg-open',[url],{stdio:'ignore'}).unref();
+// Windows 会在启动器退出时释放命名管道。连续双击期间只有持有者能创建服务或改写实例记录。
+async function lockStartup(){
+  if(process.platform!=='win32')return null;
+  const key=crypto.createHash('sha256').update(fs.realpathSync(root).toLowerCase()).digest('hex').slice(0,32);
+  const pipe='\\\\.\\pipe\\plc-mqtt-start-'+key;
+  const deadline=Date.now()+22000;
+  do{
+    const lock=net.createServer(socket=>socket.destroy());
+    try{
+      await new Promise((resolve,reject)=>{lock.once('error',reject);lock.listen(pipe,resolve);});
+      return lock;
+    }catch(e){if(e.code!=='EADDRINUSE')throw e;}
+    await sleep(200);
+  }while(Date.now()<deadline);
+  throw Error('另一个启动窗口仍在准备服务，请查看那个窗口的提示');
 }
 async function main(){
-  const firstRun=!fs.existsSync(path.join(root,'data','projects.json'));
   const action=process.argv[2]||'status';fs.mkdirSync(logs,{recursive:true});
   const c=load(root),previous=readJSON(recordFile,null);
   if(action==='status'){
@@ -43,19 +54,35 @@ async function main(){
   }
   if(action==='test'){
     dependencies();const began=Date.now();
-    const r=spawnSync(process.execPath,['--test','tests/model.test.cjs','tests/integration.test.cjs','tests/native.test.cjs','tests/assist.test.cjs','tests/diagnostics.test.cjs'],{cwd:root,encoding:'utf8',windowsHide:true,timeout:90000,maxBuffer:4*1024*1024});
+    const r=spawnSync(process.execPath,['--test','tests/model.test.cjs','tests/integration.test.cjs','tests/native.test.cjs','tests/assist.test.cjs','tests/diagnostics.test.cjs','tests/launcher.test.cjs'],{cwd:root,encoding:'utf8',windowsHide:true,timeout:90000,maxBuffer:4*1024*1024});
     process.stdout.write(r.stdout||'');process.stderr.write(r.stderr||'');
     writeJSON(path.join(logs,'self-test.json'),{began,ended:Date.now(),node:process.version,scope:'独立临时目录与本机临时端口；不修改用户运行数据',passed:r.status===0,exitCode:r.status,stdout:r.stdout,stderr:r.stderr,error:r.error?.message});
     if(r.status!==0)throw Error('自测未通过，详见logs/self-test.json');
     const {Journal}=require('../src/diagnostics.cjs');new Journal(path.join(root,'data')).record(null,'service.test','pass');return;
   }
   if(action!=='start')throw Error('用法：node tools/control.cjs start [--open] | stop | status | test');
+  const lock=await lockStartup();
+  let record;
+  const firstRun=!fs.existsSync(path.join(root,'data','projects.json'));
+  try{record=await startService(c);}finally{if(lock)await new Promise(resolve=>lock.close(resolve));}
+  if(process.argv.includes('--open')&&!process.argv.includes('--headless')){
+    const {Journal}=require('../src/diagnostics.cjs');
+    const journal=new Journal(path.join(root,'data'));
+    const confirmed=await openPage({port:record.port,instance:record.instance,firstRun},{
+      log:(launchStep,level,cause)=>journal.record(null,'service.launch',level,cause,{operation:'start',channel:'http',launchStep})
+    });
+    if(!confirmed)process.exitCode=2;
+  }
+}
+async function startService(c){
   dependencies();
+  const previous=readJSON(recordFile,null);
   const h=previous?await health(previous.port):null;
   if(matches(h,previous)){
     if(previous.configHash!==hash(c))throw Error('配置已改动，请先停止原实例再启动');
     if(!h.ready)throw Error('本项目实例存在但尚未就绪，请查看日志；未重复启动');
-    console.log('复用本项目实例：http://127.0.0.1:'+previous.port);if(process.argv.includes('--open')&&!process.argv.includes('--headless'))openBrowser(previous.port);return;
+    if(h.version!==require('../package.json').version)throw Error('本目录仍在运行旧版服务。请结束测试，运行 01_停止本项目.cmd 后再启动新版');
+    console.log('复用本项目实例：http://127.0.0.1:'+previous.port);return previous;
   }
   for(const [channel,port] of Object.entries(c.ports)){
     try{await free(port);}catch(e){e.diagnosticChannel=channel;throw e;}
@@ -70,7 +97,7 @@ async function main(){
   for(let i=0;i<75;i++){
     await sleep(200);if(spawnError)throw spawnError;
     const ready=await health(c.ports.http);
-    if(matches(ready,record)&&ready.ready){child.unref();console.log('服务已就绪：http://127.0.0.1:'+c.ports.http);console.log('MQTT '+c.ports.mqtt+'；Modbus TCP '+c.ports.modbus+'；项目与驱动在网页中选择');if(process.argv.includes('--open')&&!process.argv.includes('--headless'))openBrowser(c.ports.http,firstRun);return;}
+    if(matches(ready,record)&&ready.ready){child.unref();console.log('服务已就绪：http://127.0.0.1:'+c.ports.http);console.log('MQTT '+c.ports.mqtt+'；Modbus TCP '+c.ports.modbus+'；项目与驱动在网页中选择');return record;}
     if(child.exitCode!==null)break;
   }
   // 这是本次直接创建且仍受句柄跟踪的子进程，不按历史PID或进程名清理。

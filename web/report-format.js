@@ -32,6 +32,7 @@
     browser:['Edge','Chrome','Firefox','Safari','Other'], software:['haiwell','tia','classic','smart','mitsubishi','inovance','mcgs','weintek'],
     role:['plc','hmi'], component:['app','assist','diagnostics','page'], mode:['direct','enable'],
     action:['start','stop','reset','query','other'], channel:['http','mqtt','modbus'],
+    launchStep:['default','edge','chrome','ready','manual'],
     operation:['start','status','stop','test','project','files','controls','mqtt','screen','diagnostics','other']};
   const labels = {generic:'通用',s7200:'西门子 S7-200',classic:'西门子 S7-200 经典型',smart:'西门子 S7-200 SMART',tia:'西门子博途',haiwell:'海为',mitsubishi:'三菱',inovance:'汇川',mcgs:'昆仑通态',weintek:'威纶通',modbus:'Modbus TCP',s7:'S7 TCP',mc3e:'MC 3E',hmi:'触摸屏',gateway:'网关',native:'外部运行端',model:'内置 PLC',external:'外部程序',builtin:'内置程序'};
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

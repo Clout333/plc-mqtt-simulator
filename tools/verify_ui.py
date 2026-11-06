@@ -6,6 +6,7 @@ import socket
 import subprocess
 import tempfile
 import urllib.request
+import uuid
 from playwright.sync_api import sync_playwright, expect
 
 def available_ports():
@@ -41,9 +42,13 @@ c.ports=JSON.parse(process.argv[3]);require(root+'/src/server.cjs').start(root,c
                 page = browser.new_page(viewport={'width':1440,'height':940})
                 errors = []
                 page.on('pageerror', lambda e: errors.append(str(e)))
-                page.goto(url)
+                launch_id=str(uuid.uuid4())
+                page.goto(url+'/?launch='+launch_id)
                 expect(page.locator('#plcLink')).to_have_text('通信正常')
                 expect(page.locator('#ownerLink')).to_have_text('已订阅')
+                page.wait_for_function("!new URL(location.href).searchParams.has('launch')")
+                with urllib.request.urlopen(url+'/health?launch='+launch_id,timeout=3) as received:
+                    assert json.load(received)['pageReady']
                 shots = os.environ.get('BENCH_SCREENSHOTS')
                 if shots:
                     Path(shots).mkdir(parents=True, exist_ok=True)
@@ -117,6 +122,19 @@ c.ports=JSON.parse(process.argv[3]);require(root+'/src/server.cjs').start(root,c
                 expect(page.locator('#asRoute option')).to_have_count(4)
                 if shots:
                     page.screenshot(path=str(Path(shots)/'接入助手首页.png'),full_page=True)
+                saved=page.evaluate("async()=>{const {epoch,project}=await (await fetch('/api/state')).json();return {epoch,project}}")
+                for width in (320,390):
+                    page.set_viewport_size({'width':width,'height':844})
+                    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), '初次接入页面溢出'
+                if shots:
+                    page.screenshot(path=str(Path(shots)/'手机接入助手.png'),full_page=True)
+                page.set_viewport_size({'width':1440,'height':940})
+                page.locator('#asDemo').click()
+                expect(page.locator('#asOutcome')).to_have_text('连接检查通过')
+                expect(page.locator('#asChecks')).to_contain_text('设备回复')
+                assert page.evaluate("async()=>{const {epoch,project}=await (await fetch('/api/state')).json();return {epoch,project}}")==saved
+                page.locator('#asBack2').click()
+                expect(page.locator('#asStep1')).to_be_visible()
                 page.locator('#asFiles').set_input_files([
                     {'name':'PLC_R1.gpc','mimeType':'application/octet-stream','buffer':b'format only'},
                     {'name':'PLC_R2.gpc','mimeType':'application/octet-stream','buffer':b'format only'},
@@ -140,10 +158,18 @@ c.ports=JSON.parse(process.argv[3]);require(root+'/src/server.cjs').start(root,c
                 with socket.socket() as missing:
                     missing.bind(('127.0.0.1',0))
                     missing_port=missing.getsockname()[1]
+                page.locator('#asPort').fill('70000')
+                page.locator('#asApply').click()
+                expect(page.locator('#asStatus')).to_contain_text('端口')
+                expect(page.locator('#asStep2')).to_be_visible()
                 page.locator('#asPort').fill(str(missing_port))
+                page.locator('#asReadTools > summary').click()
                 page.locator('#asProbe').click()
                 expect(page.locator('#asProbeRows')).to_contain_text('需处理')
                 expect(page.locator('#asProbeRows')).to_contain_text('端口')
+                page.locator('#asBack1').click()
+                page.locator('#asPlan').click()
+                expect(page.locator('#asPort')).to_have_value(str(missing_port))
                 page.locator('#asBack1').click()
                 project_dir=Path(temp)/'我的屏工程'
                 project_dir.mkdir()
@@ -152,7 +178,15 @@ c.ports=JSON.parse(process.argv[3]);require(root+'/src/server.cjs').start(root,c
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), '工程选择窄屏溢出'
                 page.set_viewport_size({'width':1440,'height':900})
                 page.locator('#asPath').fill(str(project_dir))
-                page.locator('#asRead').click()
+                page.locator('#asPath').fill(str(project_dir/'找不到的工程.gpc'))
+                page.locator('#asPlan').click()
+                expect(page.locator('#asStatus')).to_contain_text('找不到')
+                expect(page.locator('#asStep1')).to_be_visible()
+                expect(page.locator('#asMatches')).to_be_hidden()
+                page.locator('#asPath').fill(str(project_dir))
+                page.locator('#asPlan').click()
+                expect(page.locator('#asBindings')).to_contain_text('显示.cmtp')
+                page.locator('#asBack1').click()
                 expect(page.locator('#asHmi')).to_have_value('weintek')
                 expect(page.locator('#asWithPlc')).not_to_be_checked()
                 page.locator('#asRole').select_option('display')
@@ -181,9 +215,18 @@ c.ports=JSON.parse(process.argv[3]);require(root+'/src/server.cjs').start(root,c
                     page.screenshot(path=str(Path(shots)/'接入助手验屏.png'),full_page=True)
                 page.locator('#asBack2').click()
                 page.locator('#asBack1').click()
+                # 已经接过外部屏时，快速检查以现有配置为准，保留刚才的验屏记录。
+                expect(page.locator('#asDemo')).to_have_text('检查已保存的连接')
                 page.locator('#asDemo').click()
+                expect(page.locator('#asChecks')).to_contain_text('输入的屏上数值吻合')
+                page.locator('#asBack2').click()
+                page.locator('#asRoute').select_option('demo')
+                page.locator('#asPlan').click()
                 page.locator('#asApply').click()
-                expect(page.locator('#asNext')).to_contain_text('检查已完成')
+                expect(page.locator('#asOutcome')).to_have_text('连接检查通过')
+                page.locator('#asAction').click()
+                expect(page.locator('#console')).to_be_visible()
+                page.locator('[data-tab="assist"]').click()
                 assert not page.locator('#asScreenBox').is_visible()
                 page.set_viewport_size({'width':390,'height':844})
                 page.locator('[data-tab="diagnostics"]').click()
@@ -212,7 +255,7 @@ c.ports=JSON.parse(process.argv[3]);require(root+'/src/server.cjs').start(root,c
                     page.screenshot(path=str(Path(shots)/'手机面板.png'),full_page=True)
                 assert not errors, errors
                 browser.close()
-            print('浏览器通过：四键与急停释放、两种启动、屏上操作、MQTT 收发、按钮编辑/预览/删除、详情、网关独立运行、工程文件与路径识别、只读试连、验屏、诊断导出、汇总去重和六页窄屏')
+            print('浏览器通过：四键与急停释放、两种启动、屏上操作、MQTT 收发、按钮编辑/预览/删除、详情、网关独立运行、工程文件与路径识别、快捷检查不改设置、粘贴路径直接识别、错误恢复、只读试连、验屏、诊断导出、汇总去重和六页窄屏')
         finally:
             if proc.poll() is None:
                 try:

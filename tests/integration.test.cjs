@@ -36,7 +36,7 @@ test('自定义按钮增删改、带类型参数的预览、外部回执内容�
  await f.data('/api/button/save',{button:b});b.name='调速';await f.data('/api/button/save',{button:b});
  const preview=await f.data('/api/button/preview',{id:'speed',values:{rpm:1250,seq:'Q1'}});assert.equal(JSON.parse(preview.raw).v,1250);assert.equal(preview.topic,'lab/LAB001/speed');
  const ext=await external(f.c,'custom-peer',preview.topic,(topic,bytes,cl)=>{const m=JSON.parse(bytes);cl.publish('lab/reply',JSON.stringify({answer:{id:'wrong'}}));cl.publish('lab/reply',JSON.stringify({answer:{id:m.cmd.id},v:m.v}));});
- try{const r=await f.button('speed',{rpm:1250,seq:'Q1'});assert.deepEqual(r.response.payload,{answer:{id:'Q1'},v:1250});}
+ try{const r=await f.button('speed',{rpm:1250,seq:'Q1'});assert.deepEqual(r.response.payload,{answer:{id:'Q1'},v:1250});assert.equal(r.response.deviceVerified,false);}
  finally{await end(ext);}
  await f.data('/api/project/select',{id:'field'});assert.ok(!f.app.state().project.commands.some(x=>x.id==='speed'));
  await f.data('/api/project/select',{id:p.id});assert.equal(f.app.state().project.commands.find(x=>x.id==='speed').name,'调速');

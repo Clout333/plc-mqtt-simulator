@@ -93,7 +93,6 @@ function frames(){
   renderRows($('recentRows'),s.frames.slice(0,4));renderRows($('allRows'),s.frames.filter(f=>[f.topic,f.seq,f.flow,f.client].join(' ').toLowerCase().includes(filter)));
 }
 function paint(force=false){
-  window.BenchDiagnostics?.ready(s.epoch);
   if(!document.getElementById('assist').hidden)window.BenchAssistant?.open(s);
   const p=s.project,l=s.links,v=s.plc;
   if(force||editingEpoch!==s.epoch){
@@ -120,6 +119,7 @@ function paint(force=false){
   setText('currentTask',v?v.task_seq?'任务 '+v.task_seq+'　·　'+v.elapsed_seconds+' / '+v.target_seconds+' 秒':'当前无任务':l.plcError||'等待 PLC');
   document.querySelectorAll('[data-hmi]').forEach(b=>{b.disabled=p.receiver==='external'||!l.screenOn||!v||(b.dataset.hmi==='start'&&(v.busy||v.fault||v.estop||v.maintenance||p.startMode==='enable'&&p.buttons.start&&!v.enabled))||(b.dataset.hmi==='stop'&&!v.busy);});
   $('advance').disabled=p.source!=='model'||!v?.busy;$('testScreen').checked=l.screenOn;$('testScreen').disabled=p.receiver==='external';$('testMqtt').checked=l.mqttAllowed;$('testPlc').checked=l.plcAllowed;frames();
+  window.BenchDiagnostics?.ready(s.epoch);
 }
 async function refresh(force=false){
   const n=++requestNo;
@@ -137,9 +137,9 @@ async function transmit(id,values){
   const out=$('receipt');out.hidden=false;out.className='receipt warn';out.textContent='正在发送并等待回执…';
   let r;try{r=await post('/api/button/send',{id,values});}catch(e){out.className='receipt bad';out.textContent=e.message;throw e;}
   const a=r.response;let t=r.transport+' · ';
-  if(a.status==='received'){t+=a.payload?.success===true?'设备已受理':a.payload?.success===false?'设备已拒绝':'收到匹配的业务回执';if(a.payload?.msg)t+=' · '+a.payload.msg;}
+  if(a.status==='received'){t+=a.deviceVerified===false?'收到同编号回复，来源为其他客户端':a.payload?.success===true?'设备已受理':a.payload?.success===false?'设备已拒绝':'收到匹配的业务回执';if(a.payload?.msg)t+=' · '+a.payload.msg;}
   else t+=a.message;
-  out.className='receipt'+(a.status==='timeout'||a.payload?.processing?' warn':a.payload?.success===false?' bad':'');out.textContent=t;notice(t,a.payload?.success===false);
+  out.className='receipt'+(a.status==='timeout'||a.deviceVerified===false||a.payload?.processing?' warn':a.payload?.success===false?' bad':'');out.textContent=t;notice(t,a.payload?.success===false);
   return r;
 }
 async function saveButton(){

@@ -1,6 +1,6 @@
 {
   "name": "industrial-device-bench",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "description": "多品牌 PLC、触摸屏与 MQTT 本地联调台",
   "repository": {"type":"git","url":"https://github.com/Clout333/plc-mqtt-simulator.git"},

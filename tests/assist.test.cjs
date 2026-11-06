@@ -59,6 +59,22 @@ test('向导应用保留原项目按钮和配方模板，任务中不可换接�
  await f.physical('estop','press');await f.physical('estop','release');await f.physical('reset');
  await f.data('/api/assist/apply',{draft:{...form,route:'hmi'}});const n=f.app.state().project;assert.deepEqual(n.buttons,p.buttons);assert.deepEqual(n.commands,p.commands);assert.equal(n.device,p.device);assert.equal(n.startMode,'enable');
 });
+test('快捷检查按已保存的项目读数，保持网关角色、原工程和当前任务',async t=>{
+ const f=await fixture(t);await f.save({owner:'gateway'});
+ await f.physical('start');const before=f.app.state();assert.ok(before.plc.busy);
+ const sheet=await f.data('/api/assist/current');
+ assert.equal(sheet.scope.mqtt,'内置网关');assert.equal(sheet.profile.owner,'gateway');
+ const result=await f.data('/api/assist/check',{query:true});assert.equal(row(result,'reply').status,'pass');
+ const after=f.app.state();assert.equal(after.epoch,before.epoch);assert.deepEqual(after.project,before.project);
+ assert.ok(after.plc.busy);assert.equal(after.plc.task_seq,before.plc.task_seq);
+});
+test('重新检查若未收到本次应答，旧回执不会继续显示成功',async t=>{
+ const f=await fixture(t);
+ assert.equal(row(await f.data('/api/assist/check',{query:true}),'reply').status,'pass');
+ f.app.session.device.removeAllListeners('message');
+ assert.equal(row(await f.data('/api/assist/check',{query:true}),'reply').status,'wait');
+ assert.equal(row(await f.data('/api/assist/check'),'reply').status,'wait');
+});
 test('无硬件示例确实发送只读 MQTT 查询；自定义同名按钮即使实际是启动也不执行',async t=>{
  const f=await fixture(t),p=f.app.state().project,b={...p.commands.find(x=>x.id==='start'),id:'query',name:'查询',payload:p.commands[0].payload};
  await f.data('/api/button/save',{button:b});const report=await f.data('/api/assist/check',{query:true});
@@ -92,8 +108,8 @@ test('验证回执须来自本次设备连接与匹配编号，其他客户端�
  let counter=0,rogue=await external(f.c,'observer','unused');
  const device=await external(f.c,p.device,p.prefix+'command',(topic,body,cl)=>{const v=JSON.parse(body),sender=++counter===1?rogue:cl;sender.publish(p.prefix+'reply',JSON.stringify({seq:v.seq,success:false}));});
  try{
-  await f.button('query');assert.equal(row(await f.data('/api/assist/check'),'reply').status,'wait');
-  await f.button('query');await until(async()=>row(await f.data('/api/assist/check'),'reply').status==='pass');
+  const wrongSource=await f.button('query');assert.equal(wrongSource.response.status,'timeout');assert.equal(row(await f.data('/api/assist/check'),'reply').status,'wait');
+  const correct=await f.button('query');assert.equal(correct.response.deviceVerified,true);await until(async()=>row(await f.data('/api/assist/check'),'reply').status==='pass');
   assert.match(row(await f.data('/api/assist/check'),'reply').detail,/拒绝/);
  }finally{await end(device);await end(rogue);}
  const newPeer=await external(f.c,p.device,p.prefix+'command');

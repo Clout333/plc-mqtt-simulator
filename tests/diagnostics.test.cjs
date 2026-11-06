@@ -48,7 +48,7 @@ test('真实网页接口记录按钮、转换、PLC 故障恢复和 MQTT 回执�
 test('诊断不会把其他客户端的同号应答算成预期设备应答',async t=>{
  const f=await fixture(t);await f.save({receiver:'external'});
  const p=f.app.state().project,wrong=await external(f.c,'WRONG_PRIVATE',[p.prefix+'command'],(topic,buf,client)=>{const v=JSON.parse(buf);client.publish(p.prefix+'reply',JSON.stringify({seq:v.seq,success:true}));});
- t.after(()=>end(wrong));const result=await f.button('query');assert.equal(result.response.status,'received');
+ t.after(()=>end(wrong));const result=await f.button('query');assert.equal(result.response.status,'timeout');assert.match(result.response.message,/其他客户端/);
  await f.data('/api/assist/check',{query:false});const r=await fetch(f.url+'/api/diagnostics').then(v=>v.json());
  assert.equal(r.events.find(e=>e.kind==='mqtt.message').cause,'source');assert.ok(r.events.some(e=>e.kind==='check.device'&&e.cause==='device'));assert.doesNotMatch(JSON.stringify(r),/WRONG_PRIVATE/);
 });

@@ -2,6 +2,7 @@
 (() => {
   const fmt=window.BenchReports, el=id=>document.getElementById(id);
   let current=null,summary=null,visible=30,epoch='',started='',busy=false;
+  let launch=new URLSearchParams(location.search).get('launch');
   const issues=[],date=t=>new Date(t).toLocaleString('zh-CN',{hour12:false}),label=v=>v?(fmt.labels[v]||v):'';
   function tr(values) {
     const row=document.createElement('tr');
@@ -19,7 +20,7 @@
     if(!current)return;
     const filtered=el('diagProblems').checked?current.events.filter(e=>['warn','fail'].includes(e.level)):current.events;
     const rows=filtered.slice(0,visible).map(e=>{
-      const extra=[fmt.causes[e.cause],e.channel&&({http:'网页服务',mqtt:'本机 Broker',modbus:'内置 Modbus'})[e.channel],e.phase&&['','空闲','准备','作业','结束处理'][e.phase],e.plcCode&&('PLC 受理码 '+e.plcCode),e.browser&&(e.browser+' '+(e.browserMajor||'')),
+      const extra=[fmt.causes[e.cause],e.launchStep&&({default:'打开默认浏览器',edge:'尝试 Edge',chrome:'尝试 Chrome',ready:'页面已就绪',manual:'提示手动访问'})[e.launchStep],e.channel&&({http:'网页服务',mqtt:'本机 Broker',modbus:'内置 Modbus'})[e.channel],e.phase&&['','空闲','准备','作业','结束处理'][e.phase],e.plcCode&&('PLC 受理码 '+e.plcCode),e.browser&&(e.browser+' '+(e.browserMajor||'')),
         e.software&&[label(e.software),label(e.role),e.softwareVersion,e.running?'运行中':'已检测到'].filter(Boolean).join(' '),e.count!==undefined&&('检出 '+e.count+' 项'),e.durationMs!==undefined&&(e.durationMs+' ms'),route(e)].filter(Boolean);
       return tr([date(e.time),fmt.events[e.kind],fmt.levels[e.level],extra.join(' / ')||'—']);
     });
@@ -36,7 +37,14 @@
   async function open(){if(busy)return;busy=true;try{await read();}catch(e){feedback(e.message,true);}finally{busy=false;}}
   function recordLocal(kind,component){
     if(!epoch){if(issues.length<4)issues.push({kind,component});return;}
-    fetch('/api/diagnostics/browser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({epoch,kind,component})}).catch(()=>{});
+    const body={epoch,kind,component};
+    if(kind==='open'&&launch)body.launch=launch;
+    fetch('/api/diagnostics/browser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(response=>{
+      if(response.ok&&body.launch===launch&&launch){
+        const address=new URL(location.href);
+        address.searchParams.delete('launch');history.replaceState(history.state,'',address.pathname+address.search+address.hash);launch=null;
+      }
+    }).catch(()=>{});
   }
   function ready(id){
     epoch=id;if(started===id)return;started=id;recordLocal('open','page');issues.splice(0).forEach(e=>recordLocal(e.kind,e.component));

@@ -26,6 +26,7 @@ async function start(root=rootDir,override,options={}){
   if(db.schema!==1||!Array.isArray(db.profiles)||!db.profiles.length)throw Error('项目库格式有误');
   db.profiles.forEach(validate);if(!db.profiles.some(p=>p.id===db.active))throw Error('未找到当前项目');
   const instance=options.instance||crypto.randomBytes(24).toString('hex');
+  const openedPages=new Map(); // 本次启动窗口的回执只在内存保留，不写入报告。
   let session,changing=false,closing=false,users=0,epoch=crypto.randomUUID();
   function profile(){return db.profiles.find(p=>p.id===db.active);}
   async function open(p){
@@ -59,7 +60,11 @@ async function start(root=rootDir,override,options={}){
       const hosts=['127.0.0.1:'+c.ports.http,'localhost:'+c.ports.http];
       if(!hosts.includes(req.headers.host)||req.headers.origin&&!hosts.some(h=>req.headers.origin==='http://'+h))return send(403,{error:'仅允许本机同源访问'});
       const u=new URL(req.url,'http://127.0.0.1');route=u.pathname;
-      if(route==='/health')return send(200,{service:'industrial-device-bench',version:appVersion,projectId:c.projectId,instance,pid:process.pid,root:path.resolve(root),ready:!!session&&!closing&&!changing});
+      if(route==='/health'){
+        const status={service:'industrial-device-bench',version:appVersion,projectId:c.projectId,instance,pid:process.pid,root:path.resolve(root),ready:!!session&&!closing&&!changing};
+        if(u.searchParams.has('launch'))status.pageReady=(openedPages.get(u.searchParams.get('launch'))||0)>Date.now();
+        return send(200,status);
+      }
       if(req.method==='GET'&&Object.hasOwn(assetMap,route)){
         const name=assetMap[route];return send(200,fs.readFileSync(path.join(root,'web',name)),({js:'text/javascript',css:'text/css',html:'text/html'})[name.split('.').pop()]+'; charset=utf-8');
       }
@@ -86,7 +91,13 @@ async function start(root=rootDir,override,options={}){
       if(changing||closing||d.epoch!==epoch)return send(409,{error:'操作界面已过期，请刷新后重试'});
       if(route==='/api/diagnostics/browser'){
         const info=browser(req.headers['user-agent']);
-        if(d.kind==='open')journal.record(profile(),'browser.open','info','none',info,'browser.'+info.browser);
+        if(d.kind==='open'){
+          journal.record(profile(),'browser.open','info','none',info,'browser.'+info.browser);
+          if(typeof d.launch==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(d.launch)){
+            openedPages.set(d.launch,Date.now()+60000);
+            if(openedPages.size>32)openedPages.delete(openedPages.keys().next().value);
+          }
+        }
         else if(['script','rejection'].includes(d.kind))journal.record(profile(),'browser.error','fail',d.kind,{...info,component:d.component},'browser.error.'+info.browser+'.'+d.kind);
         return send(200,{ok:true});
       }
@@ -126,6 +137,7 @@ async function start(root=rootDir,override,options={}){
         if(route==='/api/assist/recognise')result=assist.recognise(d.files);
         else if(route==='/api/assist/path')result=await inspectPath(d.path);
         else if(route==='/api/assist/inventory')result=await inventory(root);
+        else if(route==='/api/assist/current')result=assist.currentPlan(p,c.ports);
         else if(route==='/api/assist/plan')result=assist.plan(p,d.draft,c.ports);
         else if(route==='/api/assist/points')result={csv:csv(assist.plan(p,d.draft,c.ports).profile)};
         else if(route==='/api/assist/probe'||route==='/api/assist/read'){

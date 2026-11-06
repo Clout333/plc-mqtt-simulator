@@ -8,36 +8,36 @@ const routes={
 };
 const kits={
   haiwell:{name:'海为 PLC',brand:'haiwell',driver:'modbus',steps:[
-    '用 HaiwellHappy 打开工程副本，编译后进入厂商提供的模拟运行环境。',
-    '核对当前模拟器是否提供外部可读的 Modbus TCP 服务。把项目内部位、字映射到联调点表，填写实际开放的站号和端口。',
-    '如果模拟窗口只显示内部变量，可以先在厂家软件验证梯形图，再选内置 PLC 检查屏和报文。']},
+    '在 HaiwellHappy 中打开工程副本，先编译，再启动模拟。',
+    '要让助手读到 PLC，仿真程序需开放 Modbus TCP。在下面填写它的端口、站号，再把内部位和寄存器对应到下载的点表。',
+    '如果只能在海为窗口看变量，先在那里测试梯形图。测试屏和 MQTT 时可改用内置 PLC。']},
   tia:{name:'西门子博途 / S7-1200、1500',brand:'tia',driver:'s7',steps:[
-    '在 TIA Portal 编译工程副本，启动与 CPU、软件版本匹配且支持外部通信的仿真实例。',
-    '用 S7 驱动时，在测试工程开放相应访问权限，把联调区放在可按绝对地址读取的 DB 中。按实例填写机架、槽号和 DB 号。',
+    '在博途中编译工程副本，启动与 CPU 型号匹配、支持其他程序连接的 PLC 仿真。',
+    '使用 S7 通信时，在测试工程中允许外部读取，把测试变量放进支持绝对地址访问的 DB。把机架、槽号和 DB 号填在下方。',
     '用 MB_SERVER 的程序可改选 Modbus TCP。若虚拟 CPU 拥有独立 IP，请通过本机协议桥或端口转发接到本机地址。']},
   smart:{name:'西门子 S7-200 SMART',brand:'s7200',driver:'modbus',steps:[
-    '在 STEP 7-Micro/WIN SMART 确认型号和程序使用的通信方式。',
-    '已有 Modbus TCP 服务接口时，使用本机能对外通信的运行端或桥，并映射 V/M 区。若使用 S7 访问，在驱动选项选择 S7，按工程填写 TSAP 和 V 区映射。',
+    '在 STEP 7-Micro/WIN SMART 查看 CPU 型号和工程使用的通信协议。',
+    '如果使用 Modbus TCP，把 V/M 区对应到点表，再填本机仿真程序或协议桥的端口。使用 S7 时选 S7 协议，按工程填写 TSAP 和 V 区地址。',
     '只有源工程且当前工具无法对外通信时，先在内置模型验证接口，原 PLC 程序留到兼容运行端验证。']},
   classic:{name:'西门子 S7-200 经典型 / PPI',brand:'s7200',driver:'modbus',steps:[
     '用 STEP 7-Micro/WIN 打开工程并核对其模拟方式。PPI 是串行通信接口。',
-    '只有已经能读写软件模拟区的本机协议桥，才能把这些位、字转换成 Modbus TCP 或 S7 接口。本台填写桥的本机端口。',
+    '若已有能读取模拟区的协议桥，在本页选桥提供的 Modbus TCP 或 S7 协议，填写桥的本机端口。',
     '目前没有这类软件桥，可返回选择软件示例，先验证屏和 MQTT 报文；经典型程序在其兼容的运行环境中单独验证。']},
   mitsubishi:{name:'三菱 MELSEC',brand:'mitsubishi',driver:'mc3e',steps:[
-    '用匹配工程的 GX Works 版本编译测试副本并进入仿真。先确认此运行端能让其他程序通过 TCP 读写模拟区。',
-    '在已开放的 SLMP 服务端选择二进制 3E 帧，按运行端实际端口连接。联调点的开关量使用 M，字使用 D。',
+    '用对应版本的 GX Works 编译工程副本并启动仿真，确认这个仿真程序可让其他程序通过 TCP 读取变量。',
+    '使用 SLMP 时选“二进制 3E”，填仿真程序的端口。开关量用 M 地址，字数据用 D 地址。',
     '原程序已经提供 Modbus TCP 服务时可改选该驱动。只有 GX 内部通信时使用可访问该模拟区的本机桥。']},
   inovance:{name:'汇川 PLC',brand:'inovance',driver:'modbus',steps:[
     '用与系列对应的 AutoShop 或 InoProShop 打开和编译副本，在软件里启动模拟。',
-    '检查这个运行端有无 Modbus TCP 服务端；若有，按内部位/字设置寄存器映射和站号。仅支持内部模拟的版本需要本机桥。',
-    '先读取接口版本、启动代次和阶段。读数吻合后再回联调台测试命令。']},
+    '如果仿真程序支持 Modbus TCP 服务端，填入站号并对照点表配置变量。只支持软件内部模拟时，需使用能读到模拟变量的本机协议桥。',
+    '先试读一个熟悉的变量，与厂家软件中的数值对照，再测试按钮和命令。']},
   generic:{name:'其他 / 已有本机协议桥',brand:'generic',driver:'modbus',steps:[
     '启动已有的 PC 运行程序或协议桥，使它能访问待测程序的内部变量。',
     '把接口版本、启动代次、阶段与请求应答区映射到点表，填写实际使用的本机地址及端口。']}
 };
 const screens={
   haiwell:{name:'海为云组态',steps:['在 Cloud SCADA Designer 打开 .hwdev 副本，创建或编辑 Modbus TCP 客户端设备。','把数值显示元件绑定到指定的只读保持寄存器；选能访问本机服务的在线模拟（支持的版本可用 F5）。']},
-  mcgs:{name:'昆仑通态 MCGS',steps:['在 MCGS 的设备窗口选择适用于该版本的 TCP/IP 通道和 Modbus TCP 客户端驱动，设置远端 IP、端口、设备地址。','添加无符号 16 位只读通道，关联画面数值显示。启动可通信的 PC 运行环境，核对驱动从 0 还是从 1 编号。']},
+  mcgs:{name:'昆仑通态 MCGS',steps:['在 MCGS 的设备窗口选择适用于该版本的 TCP/IP 通道和 Modbus TCP 客户端驱动，设置远端 IP、端口、设备地址。','给画面加一个数字显示，绑定到无符号 16 位只读通道。启动电脑上的仿真，按驱动的编号方式选择从 0 或从 1 开始的地址。']},
   weintek:{name:'威纶通 EasyBuilder Pro',steps:['在系统参数的设备列表中添加 MODBUS TCP/IP 或其 Zero-based Addressing 版本，填写 IP、端口和站号。','用数值显示元件选择保持寄存器和无符号 16 位格式，按所选驱动使用零基或一基地址，然后运行在线模拟。']},
   generic:{name:'其他 / 通用屏',steps:['选择能与外部设备通信的 PC 运行方式，把屏设为 Modbus TCP 客户端。','在工程副本放一个 16 位无符号数值显示元件，用下表的只读点验证取数。']}
 };
@@ -80,11 +80,13 @@ function plan(base,d,ports){
   check(d&&Object.hasOwn(routes,d.route)&&Object.hasOwn(kits,d.kit)&&Object.hasOwn(screens,d.hmi),'请选择有效的接入路线和工程系列');
   const p=structuredClone(base),native=d.route==='plc'||(['hmi','gateway'].includes(d.route)&&d.withPlc===true);
   const screen=d.route==='hmi'||(d.route==='gateway'&&d.withScreen===true),gateway=d.route==='gateway',external=gateway||(d.route==='hmi'&&d.screenMqtt!==false);
-  const owner=gateway||(d.route==='hmi'&&!external)?'gateway':'hmi';
+  const owner=gateway||(screen&&!external)?'gateway':external?'hmi':base.owner;
   p.source=native?'native':'model';p.receiver=external?'external':'builtin';p.owner=owner;
   if(native)p.plc=kits[d.kit].brand;if(screen)p.hmi=d.hmi;
   p.guide={route:d.route,kit:d.kit,withScreen:screen};
-  for(const key of ['plcFile','hmiFile','gatewayFile'])if(typeof d[key]==='string'&&d[key].length<=480&&d[key])p.guide[key]=d[key];
+  for(const [key,used] of [['plcFile',native],['hmiFile',screen],['gatewayFile',gateway]]){
+    if(used&&typeof d[key]==='string'&&d[key].length<=480&&d[key])p.guide[key]=d[key];
+  }
   const previous=nativeConfig(base);
   if(native){
     const driver=d.driver||(base.source==='native'&&base.plc===p.plc?previous.driver:kits[d.kit].driver);check(Object.hasOwn(driverNames,driver),'请选择受支持的 PLC 驱动');
@@ -124,14 +126,14 @@ function plan(base,d,ports){
   if(gateway&&!native){
     add('网关','PLC 客户端驱动','Modbus TCP');add('网关','PLC 地址','127.0.0.1');add('网关','PLC 端口',ports.modbus);add('网关','PLC 站号',p.unit);add('网关','版本寄存器 · 零基',p.holding);
   }
-  if(gateway)steps.push({title:'网关程序',items:['启动网关的 PC 运行版或项目里的网关脚本。PLC 侧按点表读数，平台侧连接下面的本机 MQTT 服务。','使用本项目设备编号订阅控制主题，收到查询时保留命令编号并发回对应回执。只有硬件专用固件时，可先用内置网关测试报文。']});
+  if(gateway)steps.push({title:'网关程序',items:['在电脑上运行网关软件或脚本。连接 PLC 的一端按点表读取变量，连接平台的一端填下方的 MQTT 地址和端口。','用下方设备编号登录并订阅命令主题，回复时带回同一个命令编号。如果只有硬件网关的固件，可以先用内置网关测试报文。']});
   if(external){
     add('MQTT','Broker IP','127.0.0.1');add('MQTT','Broker 端口',ports.mqtt);add('MQTT','设备 Client ID',p.device);
     add('MQTT','协议 / 登录','MQTT 3.1.1 · 匿名');add('MQTT','主题前缀',p.prefix);
   }
   const topics=commandTopics(p);
   if(external)for(const entry of topics.slice(0,4)){const label=topics.length===1?'':entry.name+' · ';add('MQTT',label+'下行订阅主题',entry.topic);if(entry.reply)add('MQTT',label+'上行回执主题',entry.reply);}
-  if(!steps.length)steps.push({title:'内置软件示例',items:['本机已提供 PLC 模型、模拟屏和 MQTT 平台。应用后点“检查连接”，助手会发送只读查询并核对设备回执。']});
+  if(!steps.length)steps.push({title:'内置软件示例',items:['使用内置 PLC 和模拟屏。点“保存设置并检查”，即可查看本机读数和 MQTT 收发结果。']});
   let sample=null;
   if(external&&p.commands.length){
     const candidate=p.commands.find(b=>{try{return b.format==='json'&&JSON.parse(b.payload)?.action==='query';}catch{return false;}})||p.commands[0];
@@ -140,6 +142,12 @@ function plan(base,d,ports){
       Object.assign(sample,{topic:x.topic,payload:x.raw,reply:x.replyTopic,template:false});}catch{/* 保留需要额外参数的项目模板。 */}
   }
   return {profile:p,native,screen,external,route:d.route,topics,bindings,steps,sample,scope:{plc:native?'已有 PLC 程序':'内置 PLC 模型',screen:screen?'已有屏工程':'模拟屏',mqtt:external?(gateway?'网关程序':'屏内 MQTT'):(owner==='gateway'?'内置网关':'内置屏端'),platform:'本机 MQTT 平台'}};
+}
+// 从已保存的项目生成只读接入单。快速检查不应用草稿，也不重启连接。
+function currentPlan(p,ports){
+  const draft=infer(p);
+  for(const key of ['plcFile','hmiFile','gatewayFile'])if(p.guide?.[key])draft[key]=p.guide[key];
+  return plan(p,draft,ports);
 }
 function baseTopic(value,p){return value.replaceAll('{{prefix}}',p.prefix).replaceAll('{{device}}',p.device);}
 function commandTopics(p){
@@ -205,4 +213,4 @@ async function readKnown(p,ports,address){
   catch(e){return row('single','程序变量试读','fail',e.message,diagnosis(e,p));}
   finally{if(wire.close)await wire.close();}
 }
-module.exports={routes,kits,screens,driverNames,defaultPorts,infer,recognise,plan,commandTopics,filterMatches,diagnosis,row,probe,readKnown};
+module.exports={routes,kits,screens,driverNames,defaultPorts,infer,recognise,plan,currentPlan,commandTopics,filterMatches,diagnosis,row,probe,readKnown};

@@ -77,17 +77,20 @@ class Session {
     await listen(this.tcp,this.base.ports.mqtt);
     this.monitorId='bench-'+randomUUID().slice(0,12);
     this.monitor=await this.client(this.monitorId,'#',(topic,b)=>{
-      const raw=b.toString(),decoded=parse(raw),now=Date.now();
+      const raw=b.toString(),decoded=parse(raw),now=Date.now(),verifiedTopics=new Set();
       this.evidenceQueue=this.evidenceQueue.filter(j=>{
         if(j.deadline<now)return false;
         if(j.sourceRaw!==raw||topic!==j.reply||field(decoded,j.key)!==j.id)return true;
+        verifiedTopics.add(j.topic);
         this.receipts.set(j.topic+'\n'+j.reply,{time:now,seq:j.id,success:typeof decoded?.success==='boolean'?decoded.success:null});
         if(this.receipts.size>100)this.receipts.delete(this.receipts.keys().next().value);
         return false;
       });
       for(const job of this.pending){
         if(topic!==job.topic||field(decoded,job.key)!==job.id)continue;
-        job.answer({status:'received',payload:decoded});
+        const deviceVerified=verifiedTopics.has(job.requestTopic);
+        if(!job.requireDevice||deviceVerified)job.answer({status:'received',payload:decoded,deviceVerified});
+        else job.otherClient=true;
       }
     });
     if(p.receiver==='builtin'){
@@ -195,8 +198,10 @@ class Session {
         this.evidenceQueue.push({topic:x.topic,reply:x.replyTopic,key:x.replyKey,id,deadline:now+x.timeout*1000+1000});
       }
       reply=new Promise(resolve=>{
-        job={topic:x.replyTopic,key:x.replyKey,id,answer:resolve};
-        this.pending.add(job);timer=setTimeout(()=>resolve({status:'timeout',message:'等待业务回执超时，执行结果待核对'}),x.timeout*1000);
+        // 外部设备与内置标准指令均核对设备身份。自定义实验主题允许独立客户端应答，页面标明来源。
+        const requireDevice=this.p.receiver==='external'||(x.topic===this.p.prefix+'command'&&x.replyTopic===this.p.prefix+'reply');
+        job={topic:x.replyTopic,requestTopic:x.topic,key:x.replyKey,id,requireDevice,answer:resolve};
+        this.pending.add(job);timer=setTimeout(()=>resolve({status:'timeout',message:job.otherClient?'仅收到其他客户端的同编号回复，配置的设备尚未应答':'等待业务回执超时，执行结果待核对'}),x.timeout*1000);
       });
     }
     try{
@@ -208,7 +213,7 @@ class Session {
       const proof=this.receipts.get(x.topic+'\n'+x.replyTopic);
       const matched=proof&&proof.time>=started&&proof.seq===job?.id;
       const state=response.status, rejected=response.payload?.success===false;
-      const cause=state==='timeout'?'timeout':state==='interrupted'?'uncertain':state==='untracked'?'untracked':!matched?'source':rejected?'rejected':'none';
+      const cause=state==='timeout'?(job?.otherClient?'source':'timeout'):state==='interrupted'?'uncertain':state==='untracked'?'untracked':!matched?'source':rejected?'rejected':'none';
       this.log('mqtt.message',cause==='none'?'pass':cause==='untracked'?'info':'warn',cause,{action,durationMs:Date.now()-started});
       return {transport:x.qos?'Broker 已确认投递':'客户端已发送（QoS 0）',response,topic:x.topic,raw:x.raw};
     }catch(e){this.log('mqtt.message','fail',reason(e),{action,durationMs:Date.now()-started});throw e;}
