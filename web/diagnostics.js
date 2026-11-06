@@ -61,7 +61,7 @@
     summary=null;el('diagSummary').disabled=true;el('diagGroups').hidden=true;el('diagIssues').replaceChildren();
     try{
       if(files.length>40||files.some(f=>f.size>2*1024*1024))throw Error('每次最多选择 40 份报告，每份最多 2 MB');
-      const reports=[];for(const file of files)reports.push(JSON.parse((await file.text()).replace(/^\uFEFF/,'')));
+      const reports=[];for(const file of files)reports.push(JSON.parse(BenchText.decode(await file.arrayBuffer())));
       summary=fmt.summarize(reports);
       el('diagTotals').textContent=summary.reports+' 份报告 · '+summary.installations+' 个安装 · '+summary.events+' 条事件 · 已合并 '+summary.duplicates+' 条重复事件';
       el('diagGroupRows').replaceChildren(...summary.groups.map(g=>tr(['v'+g.app+' · '+(g.os==='win32'?'Windows':g.os)+' '+g.build+' '+g.arch,route(g)||'服务',g.installs,g.events,g.problems])));

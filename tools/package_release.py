@@ -48,7 +48,10 @@ def package(dependencies, out):
     if not license_file.is_file():
         raise ValueError('缺少 Node.js 及其第三方许可证')
     installed = read(dependencies/'.package-lock.json')['packages']
-    expected = {k:v for k,v in lock['packages'].items() if k}
+    # 离线包面向 Windows x64。锁文件同时列出了其他系统的可选 PDF 原生库。
+    def for_windows_x64(entry):
+        return all(target in entry.get(key, [target]) for key, target in [('os', 'win32'), ('cpu', 'x64')])
+    expected = {k:v for k,v in lock['packages'].items() if k and (not v.get('optional') or for_windows_x64(v))}
     if installed.keys() != expected.keys() or any(installed[k].get('integrity')!=v.get('integrity') or installed[k]['version']!=v['version'] for k,v in expected.items()):
         raise ValueError('依赖与锁文件不符，请重新 npm ci')
     sources = list(tracked_sources())

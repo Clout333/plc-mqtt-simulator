@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
-chcp 65001 >nul
+"%SystemRoot%\System32\chcp.com" 65001 >nul
 title 工业设备联调台
 echo 正在启动工业设备联调台，请稍候...
 set "BENCH_STATUS=1"

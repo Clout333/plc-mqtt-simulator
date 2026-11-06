@@ -1,9 +1,12 @@
 {
   "name": "industrial-device-bench",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "description": "多品牌 PLC、触摸屏与 MQTT 本地联调台",
-  "repository": {"type":"git","url":"https://github.com/Clout333/plc-mqtt-simulator.git"},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Clout333/plc-mqtt-simulator.git"
+  },
   "portableRuntime": {
     "version": "24.14.1",
     "windowsX64Sha256": "58e74bf02fc5bbacc41dcb8bef089961cd5bddd37830b87784e4fc624d145d1f"
@@ -19,6 +22,10 @@
   "dependencies": {
     "aedes": "1.2.0",
     "mqtt": "5.16.1",
-    "nodes7": "0.3.18"
+    "nodes7": "0.3.18",
+    "pdfjs-dist": "6.5.438",
+    "word-extractor": "1.0.4",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "yauzl": "3.3.1"
   }
 }

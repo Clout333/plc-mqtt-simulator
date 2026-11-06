@@ -11,6 +11,6 @@ function writeJSON(file,value){
 }
 function readJSON(file,fallback){
   if(!fs.existsSync(file))return structuredClone(fallback);
-  try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch(e){throw Error('保存文件损坏，未自动清空：'+file+'；'+e.message);}
+  try{return JSON.parse(require('../web/local-text.js').decode(fs.readFileSync(file)));}catch(e){throw Error('保存文件损坏，未自动清空：'+file+'；'+e.message);}
 }
 module.exports={writeJSON,readJSON};

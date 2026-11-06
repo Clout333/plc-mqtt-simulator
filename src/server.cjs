@@ -7,15 +7,23 @@ const assist=require('./assist.cjs'),{checkSession,startScreen,confirmScreen}=re
 const {inspectPath}=require('./project-files.cjs'),{inventory}=require('./assist-inventory.cjs');
 const {Journal,browser,reason,appVersion}=require('./diagnostics.cjs');
 const {observed,operation,inputKind}=require('./diagnostic-events.cjs');
+const {analyse,merge}=require('./protocol-import.cjs'),{MAX_BYTES,formatOf}=require('./protocol-files.cjs');
 const rootDir=path.resolve(__dirname,'..');
-const assetMap={'/':'index.html','/physical':'index.html','/platform':'index.html','/assist.js':'assist.js','/report-format.js':'report-format.js','/diagnostics.js':'diagnostics.js','/assist.css':'assist.css','/app.js':'app.js','/style.css':'style.css','/guide':'guide.html'};
+const assetMap={'/':'index.html','/physical':'index.html','/platform':'index.html','/local-text.js':'local-text.js','/protocol-import.js':'protocol-import.js','/protocol-import.css':'protocol-import.css','/assist.js':'assist.js','/report-format.js':'report-format.js','/diagnostics.js':'diagnostics.js','/assist.css':'assist.css','/app.js':'app.js','/style.css':'style.css','/guide':'guide.html'};
 function csv(p){
   const col=x=>'"'+String(x).replaceAll('"','""')+'"';
   return '\uFEFF'+[['区域','逻辑零基地址','驱动地址','宽度','变量名','说明','权限'],...pointTable(p).map(x=>[x.area,x.address,x.native,x.width,x.name,x.meaning,x.access])].map(row=>row.map(col).join(',')).join('\r\n');
 }
-async function readBody(req){
+async function readUpload(req){
+  if(!String(req.headers['content-type']||'').startsWith('application/octet-stream'))throw Error('上传文件类型无效');
+  if(Number(req.headers['content-length'])>MAX_BYTES)throw Error('单个文件不能超过 8 MB');
+  const parts=[];let size=0;
+  for await(const part of req){size+=part.length;if(size>MAX_BYTES)throw Error('单个文件不能超过 8 MB');parts.push(part);}
+  return Buffer.concat(parts);
+}
+async function readBody(req,limit=1048576){
   if(!String(req.headers['content-type']||'').startsWith('application/json'))throw Error('请使用 JSON');
-  let total=0;const parts=[];for await(const b of req){total+=b.length;if(total>1048576)throw Error('请求超过 1 MB');parts.push(b);}
+  let total=0;const parts=[];for await(const b of req){total+=b.length;if(total>limit)throw Error('请求内容过大，请分批导入');parts.push(b);}
   const obj=JSON.parse(Buffer.concat(parts).toString()||'{}');if(!obj||typeof obj!=='object'||Array.isArray(obj))throw Error('请求格式有误');return obj;
 }
 async function start(root=rootDir,override,options={}){
@@ -27,14 +35,16 @@ async function start(root=rootDir,override,options={}){
   db.profiles.forEach(validate);if(!db.profiles.some(p=>p.id===db.active))throw Error('未找到当前项目');
   const instance=options.instance||crypto.randomBytes(24).toString('hex');
   const openedPages=new Map(); // 本次启动窗口的回执只在内存保留，不写入报告。
-  let session,changing=false,closing=false,users=0,epoch=crypto.randomUUID();
+  let parsing=false;let session,changing=false,closing=false,users=0,epoch=crypto.randomUUID();
   function profile(){return db.profiles.find(p=>p.id===db.active);}
   async function open(p){
     journal.seen.clear();
     const s=new Session(c,p,path.join(dir,'projects',p.id),journal);
     try{return await s.init();}catch(e){await s.close();throw e;}
   }
-  function state(){return {project:profile(),projects:db.profiles.map(({id,name})=>({id,name})),ports:c.ports,epoch,brands:{plc:plcBrands,hmi:hmiBrands},...session.snapshot()};}
+  function state(){const current=profile();
+    const project=current.messageExamples?{...current,messageExamples:current.messageExamples.map(({id,name,topic,qos})=>({id,name,topic,qos}))}:current;
+    return {project,projects:db.profiles.map(({id,name})=>({id,name})),ports:c.ports,epoch,brands:{plc:plcBrands,hmi:hmiBrands},...session.snapshot()};}
   function save(next){writeJSON(file,next);db=next;}
   async function switchTo(p,newProfiles){
     validate(p);if(changing||users||session.ioCount||session.wire.inFlight||session.localPulses.size)throw Error('正在处理操作，请稍后切换项目');
@@ -73,6 +83,7 @@ async function start(root=rootDir,override,options={}){
         if(route==='/api/state')return send(200,state());
         if(route==='/api/diagnostics')return send(200,journal.report());
         if(route==='/api/assist/catalog')return send(200,{routes:assist.routes,kits:assist.kits,screens:assist.screens,drivers:assist.driverNames,ports:assist.defaultPorts,current:assist.infer(profile())});
+        if(route==='/api/protocol/example'){const row=profile().messageExamples?.find(x=>x.id===u.searchParams.get('id'));return send(row?200:404,row||{error:'未找到该样例'});}
         if(route==='/api/points.csv')return send(200,csv(profile()),'text/csv; charset=utf-8');
         if(route==='/api/export')return send(200,{format:'industrial-bench/1',project:profile()});
         if(route==='/api/frames.csv'){
@@ -83,7 +94,17 @@ async function start(root=rootDir,override,options={}){
         if(route==='/api/frame'){const item=session.frames.find(f=>f.id===u.searchParams.get('id'));return send(item?200:404,item||{error:'报文已滚出窗口'});}
       }
       if(req.method!=='POST')return send(404,{error:'未找到入口'});
-      d=await readBody(req);
+      if(route==='/api/protocol/analyse'){
+        if(req.headers['x-bench-epoch']!==epoch)return send(409,{error:'项目已切换，请重新选择文件'});
+        if(parsing)return send(429,{error:'另一个文件正在识别，请稍后重试'});
+        const ext=u.searchParams.get('type')||'';if(!/^[a-z]{2,5}$/.test(ext))throw Error('文件扩展名无效');
+        formatOf('upload.'+ext);parsing=true;users++;
+        try{const found=await analyse(await readUpload(req),'upload.'+ext);
+          journal.record(profile(),'files.scan',found.candidates.length?'pass':'wait',found.candidates.length?'none':'missing',{count:found.candidates.length});
+          return send(200,found);
+        }finally{parsing=false;users--;}
+      }
+      d=await readBody(req,['/api/protocol/import','/api/project/import','/api/project/save'].includes(route)?4*1048576:1048576);
       if(route==='/api/shutdown'){
         if(d.projectId!==c.projectId||d.instance!==instance)return send(403,{error:'实例不匹配'});
         send(200,{stopping:true});setTimeout(()=>stop().then(()=>options.onStop?.()),50);return;
@@ -118,7 +139,7 @@ async function start(root=rootDir,override,options={}){
         return send(200,p.id===db.active?state():await switchTo(p,db.profiles));
       }
       if(route==='/api/project/save'){
-        const p=structuredClone(d.project);p.id=profile().id;p.commands=profile().commands;
+        const p=structuredClone(d.project);p.id=profile().id;p.commands=profile().commands;p.messageExamples=profile().messageExamples;
         return send(200,await switchTo(validate(p),db.profiles.map(x=>x.id===p.id?p:x)));
       }
       if(route==='/api/project/new'||route==='/api/project/import'){
@@ -147,6 +168,17 @@ async function start(root=rootDir,override,options={}){
         else if(route==='/api/assist/check')result=await checkSession(session,d.topicId,d.query===true);
         else if(route==='/api/assist/screen-start')result=await startScreen(session);
         else if(route==='/api/assist/screen-confirm')result=await confirmScreen(session,d);
+        else if(route==='/api/protocol/import'||route==='/api/protocol/delete-example'){
+          let update;
+          if(route.endsWith('/import')){
+            const {next,added,samples,skipped}=merge(p,d.items);update=next;result={added,samples,skipped};
+          }else{
+            const rows=p.messageExamples||[];
+            if(!rows.some(x=>x.id===d.id))throw Error('未找到该样例');
+            update={...p,messageExamples:rows.filter(x=>x.id!==d.id)};result={message:'样例已删除'};
+          }
+          save({...db,profiles:db.profiles.map(x=>x.id===p.id?update:x)});session.p=update;
+        }
         else if(route==='/api/button/save'||route==='/api/button/delete'){
           const list=p.commands.slice();
           if(route.endsWith('save')){const btn=command({...d.button,id:d.button.id||crypto.randomUUID().slice(0,12)}),idx=list.findIndex(x=>x.id===btn.id);if(idx<0)list.push(btn);else list[idx]=btn;}

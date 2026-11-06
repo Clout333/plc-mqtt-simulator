@@ -11,7 +11,7 @@ async function health(port){try{const r=await fetch(`http://127.0.0.1:${port}/he
 function matches(h,r){return h&&r&&h.service==='industrial-device-bench'&&h.projectId===r.projectId&&h.instance===r.instance&&h.pid===r.pid&&h.root===root;}
 function dependencies(){
   if(Number(process.versions.node.split('.')[0])<24)throw Error('需要Node.js 24或更高版本，当前为'+process.version);
-  try{require.resolve('aedes');require.resolve('mqtt');require.resolve('nodes7');return;}catch{}
+  try{for(const name of ['aedes','mqtt','nodes7','xlsx','word-extractor','yauzl','pdfjs-dist/legacy/build/pdf.mjs'])require.resolve(name);return;}catch{}
   const candidates=[path.join(path.dirname(process.execPath),'node_modules','npm','bin','npm-cli.js'),...(process.env.PATH||'').split(path.delimiter).map(p=>path.join(p,'node_modules','npm','bin','npm-cli.js'))];
   const npm=candidates.find(p=>fs.existsSync(p));if(!npm)throw Error('没有找到npm；请安装完整Node.js运行时');
   console.log('首次准备锁定依赖，需要可访问npm包源；完成后本机可离线运行。');
@@ -54,7 +54,7 @@ async function main(){
   }
   if(action==='test'){
     dependencies();const began=Date.now();
-    const r=spawnSync(process.execPath,['--test','tests/model.test.cjs','tests/integration.test.cjs','tests/native.test.cjs','tests/assist.test.cjs','tests/diagnostics.test.cjs','tests/launcher.test.cjs'],{cwd:root,encoding:'utf8',windowsHide:true,timeout:90000,maxBuffer:4*1024*1024});
+    const r=spawnSync(process.execPath,['--test','tests/model.test.cjs','tests/integration.test.cjs','tests/native.test.cjs','tests/assist.test.cjs','tests/diagnostics.test.cjs','tests/launcher.test.cjs','tests/protocol-import.test.cjs'],{cwd:root,encoding:'utf8',windowsHide:true,timeout:90000,maxBuffer:4*1024*1024});
     process.stdout.write(r.stdout||'');process.stderr.write(r.stderr||'');
     writeJSON(path.join(logs,'self-test.json'),{began,ended:Date.now(),node:process.version,scope:'独立临时目录与本机临时端口；不修改用户运行数据',passed:r.status===0,exitCode:r.status,stdout:r.stdout,stderr:r.stderr,error:r.error?.message});
     if(r.status!==0)throw Error('自测未通过，详见logs/self-test.json');

@@ -68,8 +68,8 @@ function drawButtons(){
   for(const c of list){
     const row=element('button',undefined,'buttonRow'+(editId===c.id?' selected':''));row.type='button';row.append(element('span',c.name),element('small','QoS '+c.qos));row.onclick=()=>edit(c);manage.push(row);
     const b=element('button',c.name);b.dataset.command=c.id;b.onclick=()=>act('mqtt-'+c.id,async()=>{
-      const built=new Set(['device','prefix','timestamp','seq','seconds','task','activeTask']);
-      const parameters=[...new Set([...((c.topic+' '+c.replyTopic+' '+c.payload).matchAll(/\{\{([A-Za-z]\w*)\}\}/g))].map(x=>x[1]).filter(k=>!built.has(k)))];
+      const built=new Set(['device','prefix','timestamp','timestampSeconds','seq','seconds','task','activeTask']);
+      const parameters=[...new Set([...((c.topic+' '+c.replyTopic+' '+c.payload).matchAll(/\{\{([\p{L}][\p{L}\p{N}_]*)\}\}/gu))].map(x=>x[1]).filter(k=>!built.has(k)))];
       let values={};
       if(parameters.length){const input=await ask('输入本次报文参数','JSON 参数对象',JSON.stringify(Object.fromEntries(parameters.map(k=>[k,'']))));if(input===null)return;values=JSON.parse(input);}
       await transmit(c.id,values);});send.push(b);
@@ -119,7 +119,7 @@ function paint(force=false){
   setText('currentTask',v?v.task_seq?'任务 '+v.task_seq+'　·　'+v.elapsed_seconds+' / '+v.target_seconds+' 秒':'当前无任务':l.plcError||'等待 PLC');
   document.querySelectorAll('[data-hmi]').forEach(b=>{b.disabled=p.receiver==='external'||!l.screenOn||!v||(b.dataset.hmi==='start'&&(v.busy||v.fault||v.estop||v.maintenance||p.startMode==='enable'&&p.buttons.start&&!v.enabled))||(b.dataset.hmi==='stop'&&!v.busy);});
   $('advance').disabled=p.source!=='model'||!v?.busy;$('testScreen').checked=l.screenOn;$('testScreen').disabled=p.receiver==='external';$('testMqtt').checked=l.mqttAllowed;$('testPlc').checked=l.plcAllowed;frames();
-  window.BenchDiagnostics?.ready(s.epoch);
+  window.BenchDiagnostics?.ready(s.epoch);window.BenchImporter?.project(s);
 }
 async function refresh(force=false){
   const n=++requestNo;
@@ -163,7 +163,7 @@ $('pDriver').onchange=()=>{enableNativeFields();$('pPort').value={modbus:15021,s
 $('probe').onclick=()=>act('probe',async()=>{const l=await post('/api/probe');notice(l.plc?'已读到点表版本、启动代次及当前阶段':l.plcError,!l.plc);});
 $('reconcile').onclick=()=>act('reconcile',async()=>notice((await post('/api/reconcile')).message));
 $('newProject').onclick=()=>act('new',async()=>{const name=await ask('新建联调项目','项目名称','');if(!name)return;await post('/api/project/new',{name});await refresh(true);notice('新项目已打开');});
-$('importProject').onclick=()=>$('importFile').click();$('importFile').onchange=e=>act('import',async()=>{const file=e.target.files[0];e.target.value='';if(!file)return;const pkg=JSON.parse(await file.text());if(!pkg.project?.device)throw Error('缺少项目设备编号');
+$('importProject').onclick=()=>$('importFile').click();$('importFile').onchange=e=>act('import',async()=>{const file=e.target.files[0];e.target.value='';if(!file)return;const pkg=JSON.parse(BenchText.decode(await file.arrayBuffer()));if(!pkg.project?.device)throw Error('缺少项目设备编号');
   let device=pkg.project.device,prefix=pkg.project.prefix;
   if(confirm('是否为导入副本指定新的设备编号和主题前缀？在同一平台保留原项目时请选择“确定”。')){device=await ask('导入项目','新的设备编号',device+'_2');if(!device)return;prefix=await ask('导入项目','该项目的主题前缀','/sim/'+device+'/');if(!prefix)return;}
   await post('/api/project/import',{package:pkg,device,prefix});await refresh(true);notice('导入项目已打开');});

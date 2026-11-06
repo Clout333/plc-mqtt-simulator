@@ -18,5 +18,5 @@ function validate(c){
   for(const key of ['coilBase','holdingBase'])if(!Number.isInteger(c.modbus?.[key])||c.modbus[key]<0||c.modbus[key]>65000)fail('Modbus基址不合法');
   return c;
 }
-function load(root){return validate(JSON.parse(fs.readFileSync(path.join(root,'project.json'),'utf8').replace(/^\uFEFF/,'')));}
+function load(root){return validate(JSON.parse(require('../web/local-text.js').decode(fs.readFileSync(path.join(root,'project.json')))));}
 module.exports={load,validate};

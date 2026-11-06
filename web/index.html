@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#173a4b"><title>工业设备联调台</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/assist.css"><script defer src="/report-format.js"></script><script defer src="/diagnostics.js"></script><script defer src="/app.js"></script><script defer src="/assist.js"></script></head>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#173a4b"><title>工业设备联调台</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/assist.css"><link rel="stylesheet" href="/protocol-import.css"><script defer src="/local-text.js"></script><script defer src="/report-format.js"></script><script defer src="/diagnostics.js"></script><script defer src="/app.js"></script><script defer src="/assist.js"></script><script defer src="/protocol-import.js"></script></head>
 <body>
 <header class="appbar"><div class="wrap mast"><a class="brand" href="#console"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M4 24V12h7v12h7V8h7v16h7" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linejoin="round" stroke-linecap="round"/></svg><span>工业设备联调台</span></a><div class="appmeta"><span id="serverLink">连接本机中</span><a href="/guide" target="_blank" rel="noopener">使用指南 ↗</a></div></div></header>
 <nav aria-label="主导航"><div class="wrap tabs"><button data-tab="console">联调台</button><button data-tab="assist">接入助手</button><button data-tab="buttons">物联网按钮</button><button data-tab="connect">项目与接入</button><button data-tab="frames">报文记录</button><button data-tab="diagnostics">运行诊断</button></div></nav>
@@ -21,11 +21,11 @@
 <div class="panel wide"><div class="panelhead"><div><h2>物联网操作</h2><p class="hint" id="topicHint"></p></div><button data-go="buttons">管理按钮</button></div><div id="mqttActions" class="actions commands"></div><div id="receipt" class="receipt" aria-live="polite" hidden></div></div></div>
 <div class="panel"><div class="panelhead"><h2>最近报文</h2><button class="textBtn" data-go="frames">查看全部</button></div><div class="scroll"><table><thead><tr><th>时间</th><th>方向</th><th>主题</th><th>命令编号</th><th></th></tr></thead><tbody id="recentRows"></tbody></table></div></div>
 </section>
-<section id="buttons" class="view" hidden><div class="editorLayout"><div class="panel"><div class="panelhead"><h2>项目按钮库</h2><button id="newButton" class="primary">新增按钮</button></div><div id="buttonList"></div></div>
+<section id="buttons" class="view" hidden><div class="editorLayout"><div class="panel"><div class="panelhead"><h2>项目按钮库</h2><button id="newButton" class="primary">新增按钮</button></div><button type="button" id="protocolOpen" class="protocolOpen">从协议文件导入</button><div id="buttonList"></div><section class="protocolSamples" id="protocolSamples" hidden><h3>上行与回执样例</h3><div id="sampleList"></div></section></div>
 <form class="panel" id="buttonForm"><div class="panelhead"><h2 id="editorTitle">编辑按钮</h2></div>
 <div class="formGrid"><label>按钮名称<input id="btnName" required maxlength="36"></label><label>报文格式<select id="btnFormat"><option value="json">JSON</option><option value="text">原始文本</option></select></label><label class="span2">发布主题<input id="btnTopic" required></label><label>QoS<select id="btnQos"><option>0</option><option>1</option><option>2</option></select></label><label>等待回执（秒）<input id="btnTimeout" type="number" min="1" max="30" required></label>
 <label class="span2">报文模板<textarea id="btnPayload" rows="8" spellcheck="false"></textarea></label>
-<div class="span2 hint">内置参数有 {{device}}、{{prefix}}、{{seq}}、{{task}}、{{activeTask}}、{{timestamp}}、{{seconds}}。自定义参数可写成 {{speed}}。</div>
+<div class="span2 hint">内置参数有 {{device}}、{{prefix}}、{{seq}}、{{task}}、{{activeTask}}、{{timestamp}}（毫秒）、{{timestampSeconds}}（秒）、{{seconds}}。自定义参数可写成 {{转速}}。</div>
 <label class="span2">回执主题（仅发送时留空）<input id="btnReply"></label><label>指令关联字段<input id="btnReqKey" placeholder="如 seq 或 payload.id"></label><label>回执关联字段<input id="btnRepKey" placeholder="如 seq 或 reply.id"></label>
 <label class="span2">本次发送参数（JSON 对象）<textarea id="btnValues" rows="2" spellcheck="false" placeholder='{"speed": 50}'>{}</textarea></label></div>
 <div class="actions"><button class="primary" type="submit">保存按钮</button><button type="button" id="preview">预览报文</button><button type="button" id="sendEdited">保存并发送</button><button type="button" id="deleteButton" class="dangerText">删除</button></div><pre id="previewBox" hidden></pre></form></div></section>
@@ -83,5 +83,17 @@
 <div class="scroll" id="diagGroups" hidden><table><thead><tr><th>版本与系统</th><th>程序与驱动</th><th>安装数</th><th>事件数</th><th>提醒与失败</th></tr></thead><tbody id="diagGroupRows"></tbody></table></div><div id="diagIssues"></div></details></section>
 </main><footer class="wrap" id="footerPorts"></footer>
 <dialog id="detail"><div class="panelhead"><h2 id="dialogTitle">报文详情</h2><button id="closeDetail">关闭</button></div><div id="dialogMeta" class="hint"></div><pre id="dialogBody"></pre></dialog>
+<dialog id="protocolDialog" aria-labelledby="protocolTitle">
+  <div class="panelhead"><div><h2 id="protocolTitle">导入 MQTT 协议</h2><p class="hint">选择协议表或说明书，核对后存入当前项目。</p></div><button id="protocolClose" type="button">关闭</button></div>
+  <div id="protocolDrop" class="protocolDrop"><div><b>将文件拖到这里</b><span>Excel、CSV、TSV、Word、PDF、TXT、Markdown 或 JSON · 每份最多 8 MB</span></div><button id="protocolChoose" type="button" class="primary">选择文件</button><input id="protocolFiles" type="file" accept=".xlsx,.xls,.csv,.tsv,.doc,.docx,.pdf,.txt,.md,.json" multiple hidden></div>
+  <div class="protocolHelp"><button type="button" id="protocolTemplate" class="textBtn">下载示例表格</button><span id="protocolStatus" role="status" aria-live="polite"></span></div><ul id="protocolMessages" class="protocolMessages" hidden></ul>
+  <div id="protocolWork" hidden><div class="protocolColumns"><div><div class="protocolListHead"><b>识别结果</b><label><input id="protocolAll" type="checkbox"> 全选</label></div><div id="protocolList" class="protocolList"></div></div>
+    <div class="protocolReview"><div id="protocolSource" class="hint"></div><div class="formGrid">
+    <label>用途<select id="protocolKind"><option value="unknown">待确认</option><option value="command">下发按钮</option><option value="example">上行或回执样例</option></select></label><label>名称<input id="protocolName" maxlength="36"></label>
+    <label class="span2">MQTT 主题<input id="protocolTopic" spellcheck="false"></label>
+    <label>报文格式<select id="protocolFormat"><option value="json">JSON</option><option value="text">原始文本</option></select></label><label>QoS<select id="protocolQos"><option>0</option><option>1</option><option>2</option></select></label>
+    <label class="span2">报文内容<textarea id="protocolPayload" rows="6" spellcheck="false"></textarea></label></div>
+    <details id="protocolReplyBox"><summary>回执匹配设置</summary><div class="formGrid"><label class="span2">回执主题<input id="protocolReplyTopic"></label><label>指令关联字段<input id="protocolRequestKey"></label><label>回执关联字段<input id="protocolReplyKey"></label></div></details><p id="protocolHint" class="hint"></p></div>
+  </div><div class="protocolFooter"><span id="protocolCount"></span><button type="button" id="protocolSave" class="primary">保存已选报文</button></div></div></dialog>
 <dialog id="inputDialog"><form method="dialog" id="askForm"><h2 id="askTitle"></h2><label id="askLabel">名称</label><input id="askInput" autocomplete="off"><p id="askError" class="errorText"></p><div class="actions"><button type="submit" class="primary" value="ok">确定</button><button type="button" id="askCancel">取消</button></div></form></dialog>
 </body></html>

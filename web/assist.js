@@ -134,7 +134,7 @@
       let vendor='';
       if(/\.(xml|project|mcgs)$/i.test(f.name)){
         const data=new Uint8Array(await f.slice(0,24576).arrayBuffer());
-        const text=new TextDecoder(data[0]===255&&data[1]===254?'utf-16le':'utf-8').decode(data);
+        let text='';try{text=BenchText.decode(data,f.size>data.length);}catch{/* 部分厂家的 .project 为二进制，仍可按扩展名手动选择。 */}
         vendor=[...text.matchAll(/\b(?:companyName|productName|vendor|manufacturer)\s*=\s*["']([^"'<>\r\n]{1,90})["']/gi)].slice(0,6).map(v=>v[1]).join(' ').slice(0,180);
       }
       meta.push({name:f.name,vendor});
@@ -267,7 +267,7 @@
     el('asMatches').replaceChildren();el('asMatches').hidden=true;formVisibility();msg();
   };
   el('asManual').ontoggle=()=>{if(catalog)formVisibility();};
-  el('asPath').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();el('asRead').click();}};
+  el('asPath').onkeydown=e=>{if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229){e.preventDefault();el('asRead').click();}};
   el('asDiscover').onclick=()=>run(async()=>{
     const n=el('asInventory');n.textContent='正在检查本机…';const r=await api('inventory');n.replaceChildren();
     for(const item of r.items){const b=node('button',item.title+' · '+(item.running?'运行中':'已找到'));b.title='选择这个品牌';

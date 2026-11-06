@@ -44,9 +44,16 @@ function command(c){
   check(['json','text'].includes(c.format),'报文格式错误');check(typeof c.payload==='string'&&Buffer.byteLength(c.payload)<=16000,'报文超过 16000 字节');
   if(c.format==='json'){try{JSON.parse(c.payload);}catch{throw Error('JSON 模板格式不正确，请给占位符加双引号');}}
   num(c.qos,0,2,'QoS');num(c.timeout,1,30,'回执等待秒数');
-  for(const s of [c.requestKey,c.replyKey])check(typeof s==='string'&&s.length<=80&&(!s||/^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/.test(s)),'关联字段请使用 JSON 字段路径');
+  for(const s of [c.requestKey,c.replyKey])check(typeof s==='string'&&s.length<=80&&(!s||/^[\p{L}\p{N}_-]+(\.[\p{L}\p{N}_-]+)*$/u.test(s)&&!s.split('.').some(k=>['__proto__','constructor','prototype'].includes(k))),'关联字段请使用 JSON 字段路径');
   if(c.replyTopic)check(c.requestKey&&c.replyKey&&c.format==='json','等待业务回执时须设置 JSON 收发关联字段');
   return c;
+}
+function example(c){
+  id(c.id);str(c.name,36,'样例名称');str(c.topic,256,'样例主题');
+  check(!/[\u0000\r\n]/.test(c.topic),'样例主题格式错误');
+  check(['json','text'].includes(c.format)&&typeof c.payload==='string'&&Buffer.byteLength(c.payload)<=16000,'样例格式无效或超过 16000 字节');
+  if(c.format==='json'){try{JSON.parse(c.payload);}catch{throw Error('样例 JSON 格式不正确');}}
+  num(c.qos,0,2,'QoS');return c;
 }
 function validate(p){
   id(p.id);str(p.name,48,'项目名称');check(Object.hasOwn(plcBrands,p.plc)&&Object.hasOwn(hmiBrands,p.hmi),'品牌选项无效');
@@ -71,17 +78,21 @@ function validate(p){
   check(new Set(keys.map(k=>p.physical[k])).size===4,'按钮地址不可重复');
   check(Array.isArray(p.commands)&&p.commands.length<=48,'每个项目最多 48 个 MQTT 按钮');
   p.commands.forEach(command);check(new Set(p.commands.map(c=>c.id)).size===p.commands.length,'按钮 ID 重复');
+  if(p.messageExamples!==undefined){
+    check(Array.isArray(p.messageExamples)&&p.messageExamples.length<=96,'每个项目最多 96 条上行和回执样例');
+    p.messageExamples.forEach(example);check(new Set(p.messageExamples.map(c=>c.id)).size===p.messageExamples.length,'样例 ID 重复');
+  }
   return p;
 }
 function expand(c,p,state,values={}){
   command(c);
-  const variables={prefix:p.prefix,device:p.device,seq:'C'+randomUUID().slice(0,20),task:'T'+randomUUID().slice(0,20),activeTask:state?.task_seq||'',timestamp:Date.now(),seconds:p.seconds};
-  for(const [k,v] of Object.entries(values)){check(/^[A-Za-z][A-Za-z0-9_]{0,39}$/.test(k)&&!['__proto__','constructor','prototype'].includes(k),'参数名无效');check(v===null||['string','boolean','number'].includes(typeof v),'参数值仅允许简单值');variables[k]=v;}
-  const token=/\{\{([A-Za-z][A-Za-z0-9_]*)\}\}/g;
+  const variables={prefix:p.prefix,device:p.device,seq:'C'+randomUUID().slice(0,20),task:'T'+randomUUID().slice(0,20),activeTask:state?.task_seq||'',timestamp:Date.now(),timestampSeconds:Math.floor(Date.now()/1000),seconds:p.seconds};
+  for(const [k,v] of Object.entries(values)){check(/^[\p{L}][\p{L}\p{N}_]{0,39}$/u.test(k)&&!['__proto__','constructor','prototype'].includes(k),'参数名无效');check(v===null||['string','boolean','number'].includes(typeof v),'参数值仅允许简单值');variables[k]=v;}
+  const token=/\{\{([\p{L}][\p{L}\p{N}_]*)\}\}/gu;
   function value(key){check(Object.hasOwn(variables,key),'缺少模板参数 '+key);return variables[key];}
   const subst=s=>s.replace(token,(_,key)=>String(value(key)));
   function walk(v){
-    if(typeof v==='string'){const whole=/^\{\{([A-Za-z][A-Za-z0-9_]*)\}\}$/.exec(v);return whole?value(whole[1]):subst(v);}
+    if(typeof v==='string'){const whole=/^\{\{([\p{L}][\p{L}\p{N}_]*)\}\}$/u.exec(v);return whole?value(whole[1]):subst(v);}
     if(Array.isArray(v))return v.map(walk);
     if(v&&typeof v==='object')return Object.fromEntries(Object.entries(v).map(([k,val])=>[k,walk(val)]));
     return v;
@@ -93,4 +104,4 @@ function expand(c,p,state,values={}){
   return {topic:to,replyTopic:reply,raw,qos:c.qos,requestKey:c.requestKey,replyKey:c.replyKey,timeout:c.timeout};
 }
 function field(obj,key){for(const k of key.split('.')){if(!obj||typeof obj!=='object'||!Object.hasOwn(obj,k))return undefined;obj=obj[k];}return obj;}
-module.exports={initial,validate,command,expand,field,topic,keys,labels,plcBrands,hmiBrands,localHost};
+module.exports={initial,validate,command,example,expand,field,topic,keys,labels,plcBrands,hmiBrands,localHost};
