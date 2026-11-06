@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "projectId": "7bcb5bd2d00a4ed9ae75e5740323dcd9",
+  "name": "工业设备联调台",
+  "deviceId": "LAB001",
+  "topology": "hmi",
+  "deviceImplementation": "model",
+  "bind": "127.0.0.1",
+  "ports": {
+    "http": 19860,
+    "mqtt": 19883,
+    "modbus": 15502
+  },
+  "unitId": 1,
+  "topicPrefix": "/sim/LAB001/",
+  "heartbeatSeconds": 2,
+  "historyLimit": 20,
+  "recipeLimit": 20,
+  "prepareSeconds": 2,
+  "finishSeconds": 2,
+  "maxCommandAgeSeconds": 60,
+  "futureToleranceSeconds": 5,
+  "modbus": {
+    "coilBase": 0,
+    "holdingBase": 0
+  }
+}

@@ -1,0 +1,32 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const {Model}=require('../src/model.cjs'),{Protocol}=require('../src/protocol.cjs'),{Bank}=require('../src/modbus.cjs'),{validate}=require('../src/config.cjs');
+const base=require('../project.json');
+function setup(t,patch={}){
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'plc-mqtt-test-'));
+  t.after(()=>{if(path.dirname(path.resolve(dir))!==path.resolve(os.tmpdir())||!path.basename(dir).startsWith('plc-mqtt-test-'))throw Error('临时目录边界错误');fs.rmSync(dir,{recursive:true,force:true});});
+  const c={...structuredClone(base),historyLimit:20,recipeLimit:20,prepareSeconds:2,finishSeconds:2,maxCommandAgeSeconds:60,futureToleranceSeconds:5,unitId:1,modbus:{coilBase:0,holdingBase:0},...patch},m=new Model(c,dir),p=new Protocol(c,m,dir),b=new Bank(m,c);
+  return {dir,c,m,p,b};
+}
+function enable(m){m.physical({enable:true});m.physical({enable:false});}
+function cmd(change={}){return {deviceId:base.deviceId,timestamp:Date.now(),seq:'C1',task_seq:'T1',action:'start',params:{recipe:{recipe_id:'R1',recipe_name:'测试配方',duration_s:10}},...change};}
+function send(p,c=cmd()){return p.handle(JSON.stringify(c));}
+test('无使能不能开始',t=>{const {m,p}=setup(t);assert.equal(send(p).code,10);assert.equal(m.busy,false);});
+test('急停能释放，但仍需复位及重新使能',t=>{const {m}=setup(t);enable(m);m.physical({estop:true});m.physical({estop:false});assert.equal(m.fault,1);assert.equal(m.enabled,false);m.physical({reset:true});m.physical({reset:false});assert.equal(m.fault,0);assert.equal(m.enabled,false);enable(m);assert.equal(m.canStart,true);});
+test('准备运行结束处理均占用任务，进度按运行计算',t=>{const {m,p}=setup(t,{prepareSeconds:2,finishSeconds:2});enable(m);assert.equal(send(p).success,true);assert.equal(m.phase,2);assert.equal(m.state().progress,0);m.advance(7);assert.equal(m.phase,3);assert.equal(m.state().progress,50);m.advance(5);assert.equal(m.phase,4);assert.equal(m.state().progress,100);assert.equal(m.busy,true);m.advance(2);assert.equal(m.busy,false);assert.equal(m.saved.results[0].actual_seconds,10);});
+test('提前结束保留实际运行时长且结束处理只做一次',t=>{const {m,p}=setup(t,{prepareSeconds:0,finishSeconds:2});enable(m);send(p);m.advance(3);send(p,cmd({seq:'C2',action:'stop',params:{}}));m.advance(1);send(p,cmd({seq:'C3',action:'stop',params:{}}));m.advance(1);assert.equal(m.busy,false);assert.equal(m.saved.results[0].actual_seconds,3);});
+test('急停和失许可立即中断，不进入强行后处理',t=>{const {m,p}=setup(t);enable(m);send(p);m.physical({permit:false});assert.equal(m.busy,false);assert.equal(m.state().output_run,false);assert.equal(m.fault,2);});
+test('同命令重复不重启，同号换参数拒绝',t=>{const {m,p}=setup(t,{prepareSeconds:0});enable(m);send(p);m.advance(3);assert.equal(send(p).success,true);assert.equal(m.active.elapsed,3);const x=cmd();x.params.recipe.duration_s=20;assert.match(send(p,x).msg,/不同内容/);});
+test('运行快照不随同ID配方更新改变',t=>{const {m,p}=setup(t,{prepareSeconds:0});enable(m);send(p);p.saveRecipe({recipe_id:'R1',recipe_name:'新配方',duration_s:50});assert.equal(m.active.target,10);assert.equal(m.active.recipe.recipe_name,'测试配方');});
+test('忙和维护拒绝，维护不改变设备配方',t=>{const {m,p}=setup(t);enable(m);m.setMaintenance(true);assert.equal(send(p).code,17);assert.equal(p.data.recipes.length,0);m.setMaintenance(false);assert.equal(send(p,cmd({seq:'C2'})).success,true);assert.equal(m.setMaintenance(true),11);assert.equal(send(p,cmd({seq:'C3',task_seq:'T3'})).code,11);});
+test('错误任务停止不影响当前任务',t=>{const {m,p}=setup(t);enable(m);send(p);assert.equal(send(p,cmd({seq:'C2',task_seq:'OTHER',action:'stop',params:{}})).code,15);assert.equal(m.busy,true);});
+test('20条结果保持，任务去重不随显示淘汰',t=>{const {m,p,dir,c}=setup(t,{prepareSeconds:0,finishSeconds:0});enable(m);for(let i=0;i<21;i++){assert.equal(send(p,cmd({seq:'C'+i,task_seq:'T'+i})).success,true);m.advance(10);}assert.equal(m.saved.results.length,20);assert.equal(m.saved.results[0].task_seq,'T1');assert.equal(send(p,cmd({seq:'NEW',task_seq:'T0'})).code,16);const restart=new Model(c,dir);assert.equal(restart.saved.results.length,20);assert.equal(restart.enabled,false);});
+test('重启保留中断任务身份，输出与使能关闭',t=>{const {m,p,dir,c}=setup(t,{prepareSeconds:0});enable(m);send(p);m.advance(3);const restart=new Model(c,dir);assert.equal(restart.saved.results[0].reason,'进程重启中断');assert.equal(restart.saved.results[0].actual_seconds,3);assert.equal(restart.state().output_run,false);assert.equal(restart.enabled,false);});
+test('配方同号覆盖，容量按最早保存淘汰',t=>{const {p}=setup(t,{recipeLimit:2});p.saveRecipe({recipe_id:'R1',recipe_name:'1',duration_s:1});p.saveRecipe({recipe_id:'R2',recipe_name:'2',duration_s:2});p.saveRecipe({recipe_id:'R1',recipe_name:'更新1',duration_s:3});p.saveRecipe({recipe_id:'R3',recipe_name:'3',duration_s:3});assert.deepEqual(p.data.recipes.map(x=>x.recipe_id),['R2','R3']);});
+test('真实保存文件损坏时不静默清空',t=>{const {dir,c}=setup(t);fs.writeFileSync(path.join(dir,'model.json'),'{');assert.throws(()=>new Model(c,dir),/损坏/);});
+test('非法设备、时效、目标及Retain拒绝',t=>{const {p}=setup(t);for(const c of [cmd({deviceId:'OTHER'}),cmd({timestamp:0}),cmd({timestamp:Date.now()+100000}),cmd({params:{recipe:{recipe_id:'R',recipe_name:'r',duration_s:''}}})])assert.equal(send(p,c).success,false);assert.equal(p.handle(JSON.stringify(cmd()),{retain:true}).success,false);});
+test('提交后保存异常不谎报未执行',t=>{const {m,p}=setup(t);enable(m);const request=m.request.bind(m);m.request=(...args)=>{request(...args);throw Error('写入后异常');};const r=send(p);assert.equal(m.busy,true);assert.equal(r.processing,true);});
+test('半份参数和未提交不运行；完整提交后应答保持',t=>{const {m,b}=setup(t);enable(m);b.req[2]=1;b.req[3]=1;b.req[4]=10;b.req[5]=m.saved.boot;b.req[20]=0x5431;assert.equal(m.busy,false);b.submit(true);assert.equal(b.replyCode,1);b.submit(true);assert.equal(m.saved.seenTasks.length,1);b.submit(false);assert.equal(b.reply,false);});
+test('只读点和跨越只读区的批量写整体拒绝',t=>{const {b}=setup(t);let x=Buffer.from([6,0,8,0,9]);assert.equal(b.pdu(x,1)[1],2);x=Buffer.from([16,0,4,0,3,6,0,10,0,1,0,1]);assert.equal(b.pdu(x,1)[1],2);assert.equal(b.req[4],0);});
+test('站号错误、非法线圈值、旧启动代次拒绝',t=>{const {m,b}=setup(t);assert.equal(b.pdu(Buffer.from([3,0,0,0,1]),2)[1],11);assert.equal(b.pdu(Buffer.from([5,0,0,0,1]),1)[1],3);b.req[2]=1;b.req[3]=1;b.req[5]=m.saved.boot+1;b.submit(true);assert.equal(b.replyCode,13);});
+test('配置不允许扩大监听或重复端口',t=>{const c=structuredClone(base);c.bind='0.0.0.0';assert.throws(()=>validate(c),/127/);c.bind='127.0.0.1';c.ports.mqtt=c.ports.http;assert.throws(()=>validate(c),/端口/);});

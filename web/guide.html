@@ -1,0 +1,37 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>工业设备联调台 · 使用指南</title><link rel="stylesheet" href="style.css"></head><body><header class="appbar"><div class="wrap mast"><a class="brand" href="/">工业设备联调台</a><a style="color:white" href="/">返回操作面板</a></div></header><main class="wrap guide"><article><h1>本机联调指南</h1>
+<h2>手上只有程序，怎样开始</h2><p>第一次启动会打开<a href="/#assist">工程接入助手</a>。PLC、触摸屏和网关可以分开测，暂缺的一端可在本机用软件模拟。正式物联网平台可以等以后再接。</p>
+<ol><li><strong>选工程。</strong> 拖入 PLC、屏或网关文件，也可以粘贴本机项目文件夹路径。若找到多个版本，按文件名和相对路径选择此次要测的工程。只有 ST 源码或通用脚本时，指定它的用途和品牌。</li><li><strong>照着接入单设置。</strong> 在对应厂商软件中打开工程副本并运行。助手会列出这一组合的驱动、端口、点位、MQTT 主题及报文示例。已有 PLC 程序可以先试读一个自己熟悉的变量，与厂商仿真窗口对照。要继续联调按钮和任务，再按下载的点表映射测试接口。</li><li><strong>核对数据。</strong> 逐项查看 PLC、屏和 MQTT 的结果。验屏时把指定只读变量显示在屏上，再输入屏上读数。外部 MQTT 程序要用接入单中的设备编号连接并订阅；在物联网按钮页发送自己项目的测试指令，再回助手核对相同编号的回执。可导出接入单和本次结果。</li></ol>
+<p>识别文件只用于判断工程类型。地址、报文字段和指令表以自己的项目为准。只有厂商原生程序在支持通信的 PC 运行端执行时，才可验证这份程序的运行行为。只有网关硬件固件时，可以先测本机模拟网关的协议。</p>
+<h2>出现问题怎样留记录</h2><p>记下故障发生的本地时间，打开<a href="/#diagnostics">运行诊断</a>，勾选“只看提醒和失败”查看原因，然后点“导出诊断报告”。网页打不开时双击“04_导出诊断.cmd”，报告生成在 exports 文件夹。手动分享 JSON 即可。维护者可以在同一页选择多份报告，在本机汇总品牌、环境与常见问题。</p>
+<h2>用通用示例练习</h2><ol><li>双击“00_一键启动.cmd”，打开“通用四键台”。网页顶部三个指示点变绿后即可开始。</li><li>按物理启动，观察屏上阶段由准备转为作业。按停止会进入结束处理。按急停会中断任务并锁存故障。点“释放急停”，再按“复位”。</li><li>在“物联网操作”点“远程启动”。在最近报文中分别打开 command 与 reply，对照命令编号。进度来自 PLC。结束处理完毕后点“查询任务记录”查看结果。</li><li>切换“大田 · 按钮示例”。物理启动只给许可，停止键呈灰色。先给许可，然后用屏上启动或远程启动。要核对完整工艺，在厂商仿真器中运行设备工程。</li></ol>
+<h2>给新项目加一个物联网按钮</h2><p>在“项目与接入”新建项目，进入“物联网按钮”点新增。填写按钮名、发布主题、QoS 和报文原文。只发报文就将回执主题留空。需要判断设备是否应答时，填写回执主题及双方共同的编号字段，例如指令取 <code>payload.id</code>，回执取 <code>reply.id</code>。收到相同编号的报文才算业务回执。</p>
+<pre>按钮名称　调节转速
+发布主题　{{prefix}}speed/set
+报文模板　{"id":"{{seq}}","rpm":"{{rpm}}","device":"{{device}}"}
+本次参数　{"rpm":1450}
+回执主题　{{prefix}}speed/reply
+指令关联字段　id
+回执关联字段　id</pre>
+<p>选择“预览报文”，可看到 rpm 展开为数字。按“保存并发送”，再从记录查看实际数据。内置设备端实现示例 command、reply、status 和 result；自定义转速主题由项目的触摸屏、网关或自写订阅客户端处理。原始文本也可直接发送，业务结果可在报文记录中查看。</p>
+<h2>选对谁来执行</h2><table><thead><tr><th>项目设置</th><th>运行时数据路径</th></tr></thead><tbody>
+<tr><td>内置 PLC ＋ 内置触摸屏</td><td>平台按钮 → 本地 Broker → 模拟屏的 MQTT 客户端 → PLC 握手区。屏上按钮直接走 PLC 通道。</td></tr>
+<tr><td>内置 PLC ＋ 网关接入</td><td>设备端选择“内置”时由软件网关订阅并提交 PLC；屏上启动仍可独立操作。在“通断测试”关闭模拟触摸屏，触摸屏接入时 MQTT 会掉线；网关接入时仍能接收和应答。如果要测试自己的网关逻辑，设备端选“外部”，启动自己的网关运行程序。</td></tr>
+<tr><td>外部触摸屏或外部网关</td><td>选择实际接入位置，设备端选“外部”。将设备 Client ID 设为本项目编号，用自己的程序订阅命令、写 PLC、发布回执。平台显示连接、订阅及真实返回的报文。虚拟屏让出命令写入权，物理面板继续可用。</td></tr>
+<tr><td>外部 PLC 仿真器</td><td>PLC 来源选“外部”，选择驱动、IP 和端口，按导出点表实现测试区。在“检测已保存连接”读到版本和启动代次后测试按钮。运行、故障、进度都从该端点读取。端点离线时显示未知。</td></tr></tbody></table>
+<p>本机 Broker 使用 MQTT 3.1.1，固定本地地址 127.0.0.1，默认端口 19883，无需账号。模型的 Modbus TCP 默认端口 15502、站号 1。模拟器与网页在同一台电脑。支持额外物理网关的 PC 运行程序或本机协议桥。硬件网关、外部虚拟机内的 127.0.0.1 指向它们自己，本版监听范围为本机回环。</p>
+<h2 id="brands">按品牌接入</h2><p>先保留一份仿真用的工程副本。按导出点表将物理按键接到仿真输入变量，再接到原程序的按钮逻辑。选“直接启动”或“只给许可”后，内置模型按此规则运行；外部工程以自己实际写的逻辑为准。直接测试外部程序时，需让其在 PC 上提供对应协议的服务端。</p>
+<table><thead><tr><th>软件或系列</th><th>配置要点</th></tr></thead><tbody>
+<tr><td>西门子 S7-200</td><td>有 S7 以太网接口或相应 CP 时可选 S7 驱动，按项目指定 TSAP。V 区通过 DB1 访问时，位与字选 DB1 并设置分开的起始字节。经典 PPI 串口型需已有 PPI 驱动或本机协议桥，再将桥映射为 Modbus TCP。SMART 根据具体 CPU 与通信库核对配置。<a href="https://support.industry.siemens.com/cs/attachments/109978364/S7-200_SMART_system_manual_en-US.pdf">西门子 SMART 系统手册</a></td></tr>
+<tr><td>西门子博途</td><td>在允许外部网络通信的适配运行端选 S7，确认机架、槽号、测试 DB 的绝对地址和访问权限。另一条路是 PLC 程序实现 MB_SERVER 后选 Modbus TCP。普通 PLCSIM 的通信能力依 CPU 与版本核对。<a href="https://support.industry.siemens.com/cs/attachments/109989787/s7-plcsim_advanced_function_manual_en-US_en-US.pdf">PLCSIM Advanced 功能手册</a> · <a href="https://github.com/plcpeople/nodeS7/blob/master/README.md">S7 驱动说明</a></td></tr>
+<tr><td>海为 PLC</td><td>选 Modbus TCP，将内部使能位、受理位、任务区映射到逻辑点表。用工程确认站号及寄存器映射。若 PLC 原生模拟器不开放网络，可用海为屏的在线模拟连本台内置 PLC。</td></tr>
+<tr><td>三菱</td><td>工程支持 SLMP 时可选 MC 二进制 3E，配置 TCP 服务端端口。位地址 M、字地址 D，使用 Q/L 兼容设备码、默认本站路由。也可按 CPU 选 Modbus TCP。核对 GX 仿真器是否允许外部客户端接入。<a href="https://www.mitsubishielectric.com/dl/fa/document/manual/plc/sh080956eng/sh080956engl.pdf">SLMP 参考手册</a> · <a href="https://www.mitsubishielectric.com/fa/products/cnt/plcf/pmerit/communication/ethernet.html">iQ-F 以太网能力</a></td></tr>
+<tr><td>汇川</td><td>按型号配置 Modbus TCP 服务端并映射内部位和字。具备不同驱动的系列可经本机协议桥接同一接口。<a href="https://www.inovance.eu/india/products/motion-controllers-i/o-modules/am600-motion-controllers">汇川 AM600 通信规格</a></td></tr>
+<tr><td>海为触摸屏</td><td>在 Designer 的工程副本中配置 Modbus TCP 客户端，使用能访问外部设备的模拟方式。屏负责 MQTT 时，配置项目 Client ID、Broker 和订阅主题。</td></tr>
+<tr><td>昆仑通态</td><td>在 MCGS 对应版本内添加适用的 Modbus TCP 客户端驱动，设置设备、通道及读写方向；运行 PC 模拟后先读接口版本。网关负责 MQTT 时，屏只配置 PLC 通道。</td></tr>
+<tr><td>威纶通</td><td>EasyBuilder Pro 选择 MODBUS TCP/IP 驱动，确认从 0 还是从 1 编号。模拟运行时先读版本号 1，再把阶段与启动请求连到画面。<a href="https://www.weintekusa.com/globalw/Datasheet/download/datasheets/Weintek%20HMI%20to%20Modbus%20TCP%20Slave%20Devices.pdf">威纶通驱动及地址说明</a></td></tr></tbody></table>
+<h2>PLC 握手与故障定位</h2><ol><li>“导出当前点表”列出线圈、保持寄存器及所选驱动的实际地址。新工程先读 Version=1、Boot 非零、Phase=1～4，再检查四个输入键。内置模型的 Modbus 服务端支持 FC 01、03、05、06、15、16。</li>
+<li>上位机确认 RequestValid、ReplyValid 均为 0，写请求号、操作、时长、预期 Boot 及 ASCII 任务号。读回一致后最后置 RequestValid。PLC 回写同一请求号和受理码并保持 ReplyValid；上位机核对后清 RequestValid，PLC 清 ReplyValid。轮询阶段读结果。一个时刻只使用一个命令写入方。</li>
+<li>受理码 1 表示受理；10 未使能、11 忙、12 参数错、13 启动代次变更、14 现场故障、15 任务不匹配、16 重复任务、17 维护。提交后通信中断，先恢复通信并“核对待定应答”，保留任务号查证，不重复启动。</li>
+<li>通用模型的阶段为 1 待机、2 准备、3 作业、4 结束处理。进度在准备时为 0、作业时按时长、结束处理时为 100。急停按下立即终止，释放后故障仍锁存。项目没有物理复位键时可在内置屏使用故障复位。通用模型的准备和结束处理默认各 2 秒。</li>
+<li>物理按钮默认映射到线圈 8、9、10、11。普通键输出约 180 ms 脉冲，急停保持到释放。外接仿真 PLC 应在其程序内处理上升沿、故障锁存和联锁，并让多个写入端遵守同一握手约定。</li></ol>
+<h2>保存与移交</h2><p>“导出配置”保存品牌、驱动、地址、按钮和协议模板。换电脑导入即可；同机并存的项目使用不同设备编号。项目配置与数据保存在本目录 data，启动与自测记录在 logs。每项目保留最近 100 条 MQTT 报文；内置模型保留最近 20 条已结束任务。正在运行任务时先结束再切换项目。</p><p>“02_一键自测.cmd”使用临时目录与端口。停服务用“01_停止本项目.cmd”。若默认端口被占用，先停本项目，在 project.json 的 ports 内修改端口后重启，再同步修改外部程序连接设置。</p><p>本机协议对测能检查编解码、通信状态和握手。厂家工程的扫描周期、驱动许可、物理接线、执行器与安全链，应分别在对应原生运行端和现场验收。</p><p>协议参考见 <a href="https://www.modbus.org/file/secure/modbusprotocolspecification.pdf">Modbus 应用协议</a> 和 <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/mqtt-v3.1.1.html">OASIS MQTT 3.1.1</a>。</p></article></main></body></html>
