@@ -1,0 +1,73 @@
+name: 准备 Windows 离线包
+
+# 维护者在 Actions 手动执行。只给已保存的对应版本草稿附包，发布仍由维护者确认。
+on: workflow_dispatch
+permissions:
+  contents: read
+
+jobs:
+  package:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 18
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: 核对版本草稿
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = 'v' + (Get-Content -Raw package.json | ConvertFrom-Json).version
+          $release = gh release view $tag --repo $env:GITHUB_REPOSITORY --json isDraft,targetCommitish | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or !$release.isDraft) { throw "请先保存 $tag 的 Release 草稿" }
+          if ($release.targetCommitish -notin @('main', $env:GITHUB_SHA)) { throw '草稿的目标与本次构建不一致' }
+          "BENCH_TAG=$tag" >> $env:GITHUB_ENV
+      - name: 准备固定版本的 Node.js
+        run: |
+          $runtime = (Get-Content -Raw package.json | ConvertFrom-Json).portableRuntime
+          $name = "node-v$($runtime.version)-win-x64"
+          $archive = Join-Path $env:RUNNER_TEMP "$name.zip"
+          Invoke-WebRequest "https://nodejs.org/dist/v$($runtime.version)/$name.zip" -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP
+          $nodeDir = Join-Path $env:RUNNER_TEMP $name
+          $nodeExe = Join-Path $nodeDir 'node.exe'
+          if ((Get-FileHash -Algorithm SHA256 $nodeExe).Hash -ne $runtime.windowsX64Sha256) { throw 'Node.js 校验失败' }
+          New-Item -ItemType Directory -Path runtime | Out-Null
+          Copy-Item -LiteralPath $nodeExe -Destination runtime/node.exe
+          Copy-Item -LiteralPath (Join-Path $nodeDir 'LICENSE') -Destination runtime/LICENSE-node.txt
+          $nodeDir >> $env:GITHUB_PATH
+      - name: 安装锁定依赖并测试
+        run: |
+          npm.cmd ci --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:BENCH_NO_PAUSE = '1'
+          & '.\02_一键自测.cmd'
+          exit $LASTEXITCODE
+      - name: 生成离线包
+        run: python tools/package_release.py --dependencies node_modules
+      - name: 附加到发布草稿
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $release = gh release view $env:BENCH_TAG --repo $env:GITHUB_REPOSITORY --json isDraft,assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or !$release.isDraft) { throw '请核对版本草稿后重试' }
+          $name = "plc-mqtt-simulator-$env:BENCH_TAG-windows-x64.zip"
+          foreach ($file in @($name, "$name.sha256")) {
+            $asset = @($release.assets | Where-Object { $_.name -eq $file })
+            if ($asset.Count) {
+              gh release download $env:BENCH_TAG --repo $env:GITHUB_REPOSITORY --pattern $file --dir $env:RUNNER_TEMP
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              if ((Get-FileHash (Join-Path $env:RUNNER_TEMP $file)).Hash -ne (Get-FileHash "dist/$file").Hash) {
+                throw "草稿已有内容不同的 $file，请人工核对"
+              }
+            } else {
+              gh release upload $env:BENCH_TAG "dist/$file" --repo $env:GITHUB_REPOSITORY
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
+          }
